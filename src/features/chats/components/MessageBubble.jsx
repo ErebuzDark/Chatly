@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { Avatar, Button, Dropdown, Image, Popover, Slider, Tooltip } from 'antd'
 import {
+  BarChartOutlined,
   CheckCircleFilled,
   CheckCircleOutlined,
   CheckOutlined,
@@ -9,6 +10,7 @@ import {
   EditOutlined,
   FileOutlined,
   LinkOutlined,
+  LockOutlined,
   MoreOutlined,
   PauseCircleFilled,
   PlayCircleFilled,
@@ -148,6 +150,114 @@ function renderTextWithLinks(text = '', isOwn) {
   })
 }
 
+function PollCard({ message, chat, currentUid, isOwn, onVotePoll, onToggleClosePoll }) {
+  const poll = message.poll
+  if (!poll) return null
+
+  const options = poll.options || []
+  const votesMap = poll.votes || {}
+  const isClosed = !!poll.closed
+
+  // Calculate unique voters and total votes
+  const allVoterUids = new Set()
+  let totalVotes = 0
+  for (const opt of options) {
+    const arr = Array.isArray(votesMap[opt.id]) ? votesMap[opt.id] : []
+    totalVotes += arr.length
+    arr.forEach((uid) => allVoterUids.add(uid))
+  }
+
+  return (
+    <div className="min-w-60 sm:min-w-68 space-y-2.5 py-1">
+      <div className="flex items-start justify-between gap-2">
+        <div className="font-semibold leading-snug">{poll.question}</div>
+        <BarChartOutlined className={cn('shrink-0 text-base', isOwn ? 'text-white/80' : 'text-primary')} />
+      </div>
+
+      <div className={cn('flex items-center gap-2 text-[11px]', isOwn ? 'text-white/80' : 'text-muted')}>
+        <span>{poll.allowMultiple ? 'Select one or more' : 'Select one'}</span>
+        {isClosed && (
+          <span className="inline-flex items-center gap-1 font-semibold">
+            • <LockOutlined /> Closed
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-1.5">
+        {options.map((opt) => {
+          const voterIds = Array.isArray(votesMap[opt.id]) ? votesMap[opt.id] : []
+          const count = voterIds.length
+          const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0
+          const myVote = voterIds.includes(currentUid)
+          const voterNames = voterIds
+            .map((uid) => chat?.memberInfo?.[uid]?.displayName || 'Member')
+            .join(', ')
+
+          return (
+            <Tooltip key={opt.id} title={count > 0 ? `Voted by: ${voterNames}` : null}>
+              <button
+                type="button"
+                disabled={isClosed}
+                onClick={() => onVotePoll?.(message, opt.id)}
+                className={cn(
+                  'relative w-full overflow-hidden rounded-lg border px-3 py-2 text-left text-xs transition-all',
+                  isClosed ? 'cursor-not-allowed opacity-85' : 'cursor-pointer hover:opacity-95',
+                  isOwn
+                    ? myVote
+                      ? 'border-white bg-white/20 text-white font-semibold'
+                      : 'border-white/25 bg-black/15 text-white'
+                    : myVote
+                      ? 'border-primary bg-primary/15 text-foreground font-semibold'
+                      : 'border-[var(--color-border)] bg-[var(--color-surface)] text-foreground',
+                )}
+              >
+                {/* Progress bar background */}
+                <div
+                  style={{ width: `${pct}%` }}
+                  className={cn(
+                    'pointer-events-none absolute inset-y-0 left-0 transition-all duration-300',
+                    isOwn ? 'bg-white/20' : 'bg-primary/20',
+                  )}
+                />
+                <div className="relative flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-1.5 break-words">
+                    {myVote ? <CheckCircleFilled /> : <span className="inline-block h-3.5 w-3.5 rounded-full border border-current opacity-60" />}
+                    <span>{opt.text}</span>
+                  </span>
+                  <span className="shrink-0 text-[11px] opacity-85">
+                    {count} ({pct}%)
+                  </span>
+                </div>
+              </button>
+            </Tooltip>
+          )
+        })}
+      </div>
+
+      <div
+        className={cn(
+          'flex items-center justify-between pt-0.5 text-[11px]',
+          isOwn ? 'text-white/80' : 'text-muted',
+        )}
+      >
+        <span>
+          {allVoterUids.size} {allVoterUids.size === 1 ? 'member' : 'members'} voted ({totalVotes}{' '}
+          {totalVotes === 1 ? 'vote' : 'votes'})
+        </span>
+        {isOwn && (
+          <button
+            type="button"
+            onClick={() => onToggleClosePoll?.(message, !isClosed)}
+            className="cursor-pointer border-0 bg-transparent p-0 text-[11px] font-semibold text-current underline opacity-90 hover:opacity-100"
+          >
+            {isClosed ? 'Reopen poll' : 'End poll'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function MessageBubble({
   message,
   chat,
@@ -161,6 +271,8 @@ export default function MessageBubble({
   onReaction,
   onTogglePin,
   onForward,
+  onVotePoll,
+  onToggleClosePoll,
   onScrollToMessage,
 }) {
   const [reactionOpen, setReactionOpen] = useState(false)
@@ -178,6 +290,9 @@ export default function MessageBubble({
   const isOwn = message.senderId === currentUid
   const isDeleted = !!message.deletedForAll
   const urls = !isDeleted ? extractUrls(message.text) : []
+  const liveMember = chat?.memberInfo?.[message.senderId]
+  const senderAvatar = liveMember?.photoURL ?? message.senderPhoto
+  const senderDisplayName = liveMember?.displayName || message.senderName
 
   // Compute Sent / Delivered / Seen status for own messages
   let receiptStatus = 'sent'
@@ -262,8 +377,8 @@ export default function MessageBubble({
       )}
     >
       {!isOwn && (
-        <Avatar size={30} src={message.senderPhoto} className="shrink-0 bg-primary text-xs">
-          {getInitials(message.senderName)}
+        <Avatar size={30} src={senderAvatar} className="shrink-0 bg-primary text-xs">
+          {getInitials(senderDisplayName)}
         </Avatar>
       )}
 
@@ -275,7 +390,7 @@ export default function MessageBubble({
       >
         {isGroup && !isOwn && (
           <span className="mb-0.5 ml-1 text-[11px] font-medium text-muted">
-            {message.senderName}
+            {senderDisplayName}
           </span>
         )}
 
@@ -387,11 +502,23 @@ export default function MessageBubble({
                   </a>
                 ))}
 
-                {/* Text body */}
-                {message.text && (
-                  <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] leading-relaxed">
-                    {renderTextWithLinks(message.text, isOwn)}
-                  </div>
+                {/* Poll Attachment (Group Chats) */}
+                {message.type === 'poll' && message.poll ? (
+                  <PollCard
+                    message={message}
+                    chat={chat}
+                    currentUid={currentUid}
+                    isOwn={isOwn}
+                    onVotePoll={onVotePoll}
+                    onToggleClosePoll={onToggleClosePoll}
+                  />
+                ) : (
+                  /* Text body */
+                  message.text && (
+                    <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] leading-relaxed">
+                      {renderTextWithLinks(message.text, isOwn)}
+                    </div>
+                  )
                 )}
 
                 {/* Link preview for first detected URL */}

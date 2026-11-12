@@ -245,6 +245,121 @@ export async function sendMessage({
   return msgRef.id
 }
 
+export async function sendPollMessage({
+  chatId,
+  senderProfile,
+  question,
+  options = [],
+  allowMultiple = true,
+  memberIds = [],
+}) {
+  const cleanQuestion = (question || '').trim()
+  const cleanOptions = options.map((o) => (o || '').trim()).filter(Boolean)
+  if (!cleanQuestion || cleanOptions.length < 2) {
+    throw new Error('Poll requires a question and at least 2 options')
+  }
+
+  const pollOptions = cleanOptions.map((text, idx) => ({
+    id: `opt_${idx}`,
+    text,
+  }))
+
+  const votes = {}
+  for (const opt of pollOptions) {
+    votes[opt.id] = []
+  }
+
+  const previewText = `📊 Poll: ${cleanQuestion}`
+
+  const msgPayload = {
+    chatId,
+    senderId: senderProfile.uid,
+    senderName: senderProfile.displayName || senderProfile.username,
+    senderPhoto: senderProfile.photoURL || null,
+    type: 'poll',
+    text: previewText,
+    poll: {
+      question: cleanQuestion,
+      allowMultiple: !!allowMultiple,
+      closed: false,
+      options: pollOptions,
+      votes,
+    },
+    attachments: [],
+    replyTo: null,
+    forwardedFrom: null,
+    reactions: {},
+    deletedForAll: false,
+    deletedFor: [],
+    editedAt: null,
+    createdAt: serverTimestamp(),
+  }
+
+  const msgRef = await addDoc(collection(db, 'chats', chatId, 'messages'), msgPayload)
+
+  const chatUpdates = {
+    lastMessage: {
+      id: msgRef.id,
+      text: previewText,
+      senderId: senderProfile.uid,
+      senderName: senderProfile.displayName || senderProfile.username,
+      type: 'poll',
+      createdAt: new Date().toISOString(),
+    },
+    lastMessageAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    [`lastReadAt.${senderProfile.uid}`]: serverTimestamp(),
+    [`lastDeliveredAt.${senderProfile.uid}`]: serverTimestamp(),
+    [`unreadCounts.${senderProfile.uid}`]: 0,
+  }
+
+  for (const uid of memberIds) {
+    if (uid !== senderProfile.uid) {
+      chatUpdates[`unreadCounts.${uid}`] = increment(1)
+    }
+  }
+
+  await updateDoc(doc(db, 'chats', chatId), chatUpdates)
+  return msgRef.id
+}
+
+export async function voteInPoll({ chatId, message, optionId, uid }) {
+  if (!chatId || !message?.id || !message?.poll || !uid) return
+  if (message.poll.closed) return
+
+  const msgRef = doc(db, 'chats', chatId, 'messages', message.id)
+  const currentVotes = message.poll.votes || {}
+  const alreadyVotedThis = Array.isArray(currentVotes[optionId]) && currentVotes[optionId].includes(uid)
+
+  if (message.poll.allowMultiple) {
+    await updateDoc(msgRef, {
+      [`poll.votes.${optionId}`]: alreadyVotedThis ? arrayRemove(uid) : arrayUnion(uid),
+    })
+  } else {
+    // Single-choice poll: remove uid from all other options and toggle on optionId
+    const nextVotes = {}
+    for (const opt of message.poll.options || []) {
+      const existing = Array.isArray(currentVotes[opt.id]) ? currentVotes[opt.id] : []
+      const withoutMe = existing.filter((id) => id !== uid)
+      if (opt.id === optionId && !alreadyVotedThis) {
+        nextVotes[opt.id] = [...withoutMe, uid]
+      } else {
+        nextVotes[opt.id] = withoutMe
+      }
+    }
+    await updateDoc(msgRef, {
+      'poll.votes': nextVotes,
+    })
+  }
+}
+
+export async function toggleClosePoll({ chatId, messageId, closed }) {
+  if (!chatId || !messageId) return
+  await updateDoc(doc(db, 'chats', chatId, 'messages', messageId), {
+    'poll.closed': !!closed,
+  })
+}
+
 export async function editMessage({ chatId, messageId, newText }) {
   const clean = (newText || '').trim()
   if (!clean) return

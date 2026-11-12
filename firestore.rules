@@ -135,8 +135,8 @@ service cloud.firestore {
                       && (
                         // Sender editing or unsending their own message
                         resource.data.senderId == request.auth.uid
-                        // Any member reacting or deleting for themselves
-                        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions', 'deletedFor'])
+                        // Any member reacting, voting in a poll, or deleting for themselves
+                        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions', 'deletedFor', 'poll'])
                       );
 
         allow delete: if false;

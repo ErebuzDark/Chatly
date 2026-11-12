@@ -63,6 +63,47 @@ export async function updateUserProfile(uid, updates) {
       await updateProfile(auth.currentUser, authPatch).catch(() => {})
     }
   }
+
+  // Propagate displayName / photoURL updates to active chats and contacts' lists
+  if (allowed.displayName !== undefined || allowed.photoURL !== undefined) {
+    try {
+      const [chatsSnap, myContactsSnap] = await Promise.all([
+        getDocs(query(collection(db, 'chats'), where('memberIds', 'array-contains', uid))),
+        getDocs(collection(db, 'users', uid, 'contacts')),
+      ])
+
+      const batch = writeBatch(db)
+      let ops = 0
+
+      chatsSnap.docs.forEach((chatDoc) => {
+        const patch = {}
+        if (allowed.displayName !== undefined) {
+          patch[`memberInfo.${uid}.displayName`] = allowed.displayName
+        }
+        if (allowed.photoURL !== undefined) {
+          patch[`memberInfo.${uid}.photoURL`] = allowed.photoURL
+        }
+        batch.update(chatDoc.ref, patch)
+        ops += 1
+      })
+
+      myContactsSnap.docs.forEach((contactDoc) => {
+        const contactUid = contactDoc.id
+        const mirrorRef = doc(db, 'users', contactUid, 'contacts', uid)
+        const patch = {}
+        if (allowed.displayName !== undefined) patch.displayName = allowed.displayName
+        if (allowed.photoURL !== undefined) patch.photoURL = allowed.photoURL
+        batch.update(mirrorRef, patch)
+        ops += 1
+      })
+
+      if (ops > 0) {
+        await batch.commit().catch(() => {})
+      }
+    } catch {
+      // Non-fatal if background propagation partially fails
+    }
+  }
 }
 
 /* ---------------- Wall / Status Posts ---------------- */

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { doc, onSnapshot } from 'firebase/firestore'
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore'
 import {
   App,
   Avatar,
@@ -30,9 +30,12 @@ import {
   editMessage,
   markChatRead,
   sendMessage,
+  sendPollMessage,
+  toggleClosePoll,
   togglePinMessage,
   toggleReaction,
   unsendMessage,
+  voteInPoll,
 } from '@/features/chats/api/chatsApi'
 import ChatSidebar, {
   getActiveTypers,
@@ -44,6 +47,7 @@ import NewGroupModal from '@/features/chats/components/NewGroupModal'
 import NewChatModal from '@/features/chats/components/NewChatModal'
 import ForwardMessageModal from '@/features/chats/components/ForwardMessageModal'
 import ChatInfoDrawer from '@/features/chats/components/ChatInfoDrawer'
+import CreatePollModal from '@/features/chats/components/CreatePollModal'
 import { playSendSound } from '@/services/sound'
 import {
   DEFAULT_SETTINGS,
@@ -85,6 +89,7 @@ export default function ChatsPage() {
   const [infoOpen, setInfoOpen] = useState(false)
   const [newGroupOpen, setNewGroupOpen] = useState(false)
   const [newChatOpen, setNewChatOpen] = useState(false)
+  const [pollModalOpen, setPollModalOpen] = useState(false)
 
   const listRef = useRef(null)
   const prevMsgCountRef = useRef(0)
@@ -104,7 +109,7 @@ export default function ChatsPage() {
     return () => setActiveChatId(null)
   }, [selectedChatId, setActiveChatId])
 
-  // Subscribe to other user's doc in 1:1 chat for live online/last-seen presence
+  // Subscribe to other user's doc in 1:1 chat for live online/last-seen presence & profile sync
   const otherUid = useMemo(() => {
     if (!selectedChat || selectedChat.type === 'group' || !currentUser?.uid) return null
     return (selectedChat.memberIds || []).find((id) => id !== currentUser.uid) || null
@@ -117,10 +122,26 @@ export default function ChatsPage() {
     }
     return onSnapshot(
       doc(db, 'users', otherUid),
-      (snap) => setOtherUserDoc(snap.exists() ? { id: snap.id, ...snap.data() } : null),
+      (snap) => {
+        const data = snap.exists() ? { id: snap.id, ...snap.data() } : null
+        setOtherUserDoc(data)
+        if (data && selectedChat?.id) {
+          const cached = selectedChat.memberInfo?.[otherUid]
+          if (
+            cached &&
+            (cached.photoURL !== (data.photoURL || null) ||
+              cached.displayName !== data.displayName)
+          ) {
+            updateDoc(doc(db, 'chats', selectedChat.id), {
+              [`memberInfo.${otherUid}.photoURL`]: data.photoURL || null,
+              [`memberInfo.${otherUid}.displayName`]: data.displayName,
+            }).catch(() => {})
+          }
+        }
+      },
       () => setOtherUserDoc(null),
     )
-  }, [otherUid])
+  }, [otherUid, selectedChat?.id, selectedChat?.memberInfo])
 
   // Mark chat read when viewing messages
   const unreadInSelected = selectedChat?.unreadCounts?.[currentUser?.uid] || 0
@@ -177,6 +198,47 @@ export default function ChatsPage() {
     setReplyTo(null)
     const settings = { ...DEFAULT_SETTINGS, ...currentUser.settings }
     if (settings.soundEnabled !== false) playSendSound()
+  }
+
+  const handleCreatePoll = async ({ question, options, allowMultiple }) => {
+    if (!selectedChat || selectedChat.type !== 'group' || !currentUser) return
+    await sendPollMessage({
+      chatId: selectedChat.id,
+      senderProfile: currentUser,
+      question,
+      options,
+      allowMultiple,
+      memberIds: selectedChat.memberIds || [],
+    })
+    const settings = { ...DEFAULT_SETTINGS, ...currentUser.settings }
+    if (settings.soundEnabled !== false) playSendSound()
+  }
+
+  const handleVotePoll = async (msg, optionId) => {
+    if (!selectedChat || !currentUser?.uid) return
+    try {
+      await voteInPoll({
+        chatId: selectedChat.id,
+        message: msg,
+        optionId,
+        uid: currentUser.uid,
+      })
+    } catch (err) {
+      message.error(getErrorMessage(err))
+    }
+  }
+
+  const handleToggleClosePoll = async (msg, closed) => {
+    if (!selectedChat) return
+    try {
+      await toggleClosePoll({
+        chatId: selectedChat.id,
+        messageId: msg.id,
+        closed,
+      })
+    } catch (err) {
+      message.error(getErrorMessage(err))
+    }
   }
 
   const handleSaveEdit = async (messageId, newText) => {
@@ -252,10 +314,15 @@ export default function ChatsPage() {
     }
   }
 
-  const { title, avatar, username, isGroup } = getChatDisplay(
-    selectedChat,
-    currentUser?.uid,
-  )
+  const {
+    title: rawTitle,
+    avatar: rawAvatar,
+    username: rawUsername,
+    isGroup,
+  } = getChatDisplay(selectedChat, currentUser?.uid)
+  const title = !isGroup && otherUserDoc?.displayName ? otherUserDoc.displayName : rawTitle
+  const avatar = !isGroup && otherUserDoc !== null ? otherUserDoc.photoURL : rawAvatar
+  const username = !isGroup && otherUserDoc?.username ? otherUserDoc.username : rawUsername
   const typers = getActiveTypers(selectedChat, currentUser?.uid)
   const isBlocked =
     !isGroup && otherUid && blocks.some((b) => b.uid === otherUid)
@@ -480,26 +547,27 @@ export default function ChatsPage() {
               </div>
             )}
 
-            {/* Messages Scroll Area */}
-            <div
-              ref={listRef}
-              onScroll={(e) => {
-                if (e.currentTarget.scrollTop < 40 && hasMore && !loadingOlder) {
-                  loadOlder()
-                }
-              }}
-              style={
-                selectedChat.backgroundURL
-                  ? {
-                      backgroundImage: `linear-gradient(to bottom, rgba(15, 16, 20, 0.45), rgba(15, 16, 20, 0.55)), url(${selectedChat.backgroundURL})`,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                      backgroundAttachment: 'local',
-                    }
-                  : undefined
-              }
-              className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-1 transition-all"
-            >
+            {/* Messages Area with Fixed Viewport Background */}
+            <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+              {selectedChat.backgroundURL && (
+                <div
+                  aria-hidden="true"
+                  style={{
+                    backgroundImage: `linear-gradient(to bottom, rgba(15, 16, 20, 0.45), rgba(15, 16, 20, 0.55)), url(${selectedChat.backgroundURL})`,
+                  }}
+                  className="pointer-events-none absolute inset-0 bg-cover bg-center bg-no-repeat"
+                />
+              )}
+
+              <div
+                ref={listRef}
+                onScroll={(e) => {
+                  if (e.currentTarget.scrollTop < 40 && hasMore && !loadingOlder) {
+                    loadOlder()
+                  }
+                }}
+                className="relative z-10 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-1"
+              >
               {hasMore && (
                 <div className="py-2 text-center">
                   <Button
@@ -563,6 +631,8 @@ export default function ChatsPage() {
                         onReaction={handleReaction}
                         onTogglePin={handleTogglePin}
                         onForward={(m) => setForwardTarget(m)}
+                        onVotePoll={handleVotePoll}
+                        onToggleClosePoll={handleToggleClosePoll}
                         onScrollToMessage={scrollToMessage}
                       />
                     </div>
@@ -580,18 +650,21 @@ export default function ChatsPage() {
                   <span>{typers.join(', ')} typing...</span>
                 </div>
               )}
+              </div>
             </div>
 
             {/* Composer */}
             <MessageComposer
               chatId={selectedChat.id}
               currentUid={currentUser?.uid}
+              isGroup={isGroup}
               replyTo={replyTo}
               editingMessage={editingMessage}
               onClearReply={() => setReplyTo(null)}
               onClearEdit={() => setEditingMessage(null)}
               onSend={handleSend}
               onSaveEdit={handleSaveEdit}
+              onOpenPollModal={() => setPollModalOpen(true)}
               disabled={isBlocked}
             />
           </>
@@ -599,6 +672,13 @@ export default function ChatsPage() {
       </section>
 
       {/* Modals & Drawers */}
+      {isGroup && (
+        <CreatePollModal
+          open={pollModalOpen}
+          onClose={() => setPollModalOpen(false)}
+          onCreatePoll={handleCreatePoll}
+        />
+      )}
       <NewChatModal
         open={newChatOpen}
         onClose={() => setNewChatOpen(false)}
@@ -627,6 +707,7 @@ export default function ChatsPage() {
         open={infoOpen}
         onClose={() => setInfoOpen(false)}
         chat={selectedChat}
+        otherUserDoc={otherUserDoc}
         messages={messages}
         currentUser={currentUser}
         contacts={contacts}

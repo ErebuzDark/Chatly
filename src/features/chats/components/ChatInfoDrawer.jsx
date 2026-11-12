@@ -1,15 +1,17 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   App,
   Avatar,
   Button,
+  Checkbox,
   Drawer,
   Dropdown,
+  Empty,
   Image,
   Input,
+  Modal,
   Popconfirm,
-  Select,
   Switch,
   Tag,
 } from 'antd'
@@ -23,10 +25,11 @@ import {
   LogoutOutlined,
   MoreOutlined,
   PictureOutlined,
-  PlusOutlined,
   ReloadOutlined,
+  SearchOutlined,
   StopOutlined,
   TeamOutlined,
+  UserAddOutlined,
   UserOutlined,
 } from '@ant-design/icons'
 import {
@@ -39,7 +42,11 @@ import {
   updateChatBackground,
   updateGroupDetails,
 } from '@/features/chats/api/chatsApi'
-import { blockUser, unblockUser } from '@/features/contacts/api/contactsApi'
+import {
+  blockUser,
+  searchUsersByPrefix,
+  unblockUser,
+} from '@/features/contacts/api/contactsApi'
 import { uploadImage } from '@/services/cloudinary'
 import { getChatDisplay } from '@/features/chats/components/ChatSidebar'
 import { getInitials } from '@/lib/utils'
@@ -50,6 +57,7 @@ export default function ChatInfoDrawer({
   open,
   onClose,
   chat,
+  otherUserDoc = null,
   messages = [],
   currentUser,
   contacts = [],
@@ -59,17 +67,56 @@ export default function ChatInfoDrawer({
   const [editingGroup, setEditingGroup] = useState(false)
   const [groupTitle, setGroupTitle] = useState('')
   const [groupDesc, setGroupDesc] = useState('')
-  const [addingIds, setAddingIds] = useState([])
+  const [addMemberOpen, setAddMemberOpen] = useState(false)
+  const [memberSearch, setMemberSearch] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [searchingUsers, setSearchingUsers] = useState(false)
+  const [selectedUsersMap, setSelectedUsersMap] = useState({})
   const [busy, setBusy] = useState(false)
   const [bgUploading, setBgUploading] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
   const avatarInputRef = useRef(null)
   const bgInputRef = useRef(null)
 
+  useEffect(() => {
+    if (!addMemberOpen) {
+      setMemberSearch('')
+      setSearchResults([])
+      setSelectedUsersMap({})
+      return undefined
+    }
+    const q = memberSearch.trim()
+    if (!q || !currentUser?.uid) {
+      setSearchResults([])
+      setSearchingUsers(false)
+      return undefined
+    }
+    setSearchingUsers(true)
+    const timer = setTimeout(async () => {
+      try {
+        const res = await searchUsersByPrefix(q, currentUser.uid)
+        setSearchResults(res)
+      } catch {
+        // ignore
+      } finally {
+        setSearchingUsers(false)
+      }
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [memberSearch, addMemberOpen, currentUser?.uid])
+
   if (!chat || !currentUser) return null
 
   const isGroup = chat.type === 'group'
-  const { title, avatar, otherUid, username } = getChatDisplay(chat, currentUser.uid)
+  const {
+    title: rawTitle,
+    avatar: rawAvatar,
+    otherUid,
+    username: rawUsername,
+  } = getChatDisplay(chat, currentUser.uid)
+  const title = !isGroup && otherUserDoc?.displayName ? otherUserDoc.displayName : rawTitle
+  const avatar = !isGroup && otherUserDoc !== null ? otherUserDoc.photoURL : rawAvatar
+  const username = !isGroup && otherUserDoc?.username ? otherUserDoc.username : rawUsername
   const myRole = chat.roles?.[currentUser.uid] || 'member'
   const isAdmin = isGroup && myRole === 'admin'
 
@@ -175,14 +222,30 @@ export default function ChatInfoDrawer({
     (c) => !(chat.memberIds || []).includes(c.uid),
   )
 
+  const candidateUsers = (memberSearch.trim() ? searchResults : nonMemberContacts).filter(
+    (u) => !(chat.memberIds || []).includes(u.uid),
+  )
+
+  const toggleSelectCandidate = (userObj) => {
+    setSelectedUsersMap((prev) => {
+      const next = { ...prev }
+      if (next[userObj.uid]) delete next[userObj.uid]
+      else next[userObj.uid] = userObj
+      return next
+    })
+  }
+
   const handleAddMembers = async () => {
-    const chosen = nonMemberContacts.filter((c) => addingIds.includes(c.uid))
+    const chosen = Object.values(selectedUsersMap)
     if (!chosen.length) return
     setBusy(true)
     try {
       await addMembersToGroup(chat.id, chosen, currentUser)
-      setAddingIds([])
-      message.success('Added to group')
+      setSelectedUsersMap({})
+      setAddMemberOpen(false)
+      message.success(
+        `Added ${chosen.map((c) => c.displayName).join(', ')} to the group`,
+      )
     } catch (err) {
       message.error(getErrorMessage(err))
     } finally {
@@ -418,44 +481,21 @@ export default function ChatInfoDrawer({
               )}
             </div>
 
-            {/* Add Members (Admins) */}
-            {isAdmin && nonMemberContacts.length > 0 && (
-              <div className="space-y-2 border-t border-[var(--color-border)] pt-4">
+            {/* Members List & Add Member Button */}
+            <div className="space-y-2.5 border-t border-[var(--color-border)] pt-4">
+              <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold uppercase tracking-wider text-muted">
-                  Add Contacts to Group
+                  Members ({(chat.memberIds || []).length})
                 </span>
-                <div className="flex gap-2">
-                  <Select
-                    mode="multiple"
-                    size="small"
-                    className="flex-1"
-                    placeholder="Select contacts..."
-                    value={addingIds}
-                    onChange={setAddingIds}
-                    options={nonMemberContacts.map((c) => ({
-                      value: c.uid,
-                      label: `${c.displayName} (@${c.username})`,
-                    }))}
-                  />
-                  <Button
-                    size="small"
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    loading={busy}
-                    disabled={!addingIds.length}
-                    onClick={handleAddMembers}
-                  >
-                    Add
-                  </Button>
-                </div>
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<UserAddOutlined />}
+                  onClick={() => setAddMemberOpen(true)}
+                >
+                  Add member
+                </Button>
               </div>
-            )}
-
-            {/* Members List */}
-            <div className="space-y-2 border-t border-[var(--color-border)] pt-4">
-              <span className="text-xs font-semibold uppercase tracking-wider text-muted">
-                Members ({(chat.memberIds || []).length})
-              </span>
               <div className="divide-y divide-[var(--color-border)]">
                 {(chat.memberIds || []).map((uid) => {
                   const info = chat.memberInfo?.[uid] || {
@@ -612,6 +652,87 @@ export default function ChatInfoDrawer({
           reporterUid={currentUser.uid}
           targetUser={otherProfile}
         />
+      )}
+
+      {isGroup && (
+        <Modal
+          title="Add Members to Group"
+          open={addMemberOpen}
+          onCancel={() => setAddMemberOpen(false)}
+          onOk={handleAddMembers}
+          okText={`Add (${Object.keys(selectedUsersMap).length})`}
+          okButtonProps={{
+            disabled: Object.keys(selectedUsersMap).length === 0,
+            loading: busy,
+          }}
+          destroyOnClose
+        >
+          <div className="space-y-3">
+            <Input
+              allowClear
+              prefix={<SearchOutlined className="text-muted" />}
+              placeholder="Search people by @username or pick from contacts..."
+              value={memberSearch}
+              onChange={(e) => setMemberSearch(e.target.value)}
+            />
+
+            {Object.keys(selectedUsersMap).length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {Object.values(selectedUsersMap).map((u) => (
+                  <Tag
+                    key={u.uid}
+                    closable
+                    color="blue"
+                    onClose={() => toggleSelectCandidate(u)}
+                  >
+                    {u.displayName} (@{u.username})
+                  </Tag>
+                ))}
+              </div>
+            )}
+
+            <div className="max-h-64 overflow-y-auto divide-y divide-[var(--color-border)] rounded-md border border-[var(--color-border)] px-3">
+              {candidateUsers.length === 0 ? (
+                <div className="py-6">
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={
+                      searchingUsers
+                        ? 'Searching users...'
+                        : memberSearch.trim()
+                          ? 'No matching users outside this group'
+                          : 'No contacts outside this group — search by @username above!'
+                    }
+                  />
+                </div>
+              ) : (
+                candidateUsers.map((u) => {
+                  const checked = !!selectedUsersMap[u.uid]
+                  return (
+                    <label
+                      key={u.uid}
+                      className="flex cursor-pointer items-center justify-between gap-3 py-2.5"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Avatar size={36} src={u.photoURL} className="bg-primary shrink-0">
+                          {getInitials(u.displayName)}
+                        </Avatar>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-medium">{u.displayName}</div>
+                          <div className="truncate text-xs text-muted">@{u.username}</div>
+                        </div>
+                      </div>
+                      <Checkbox
+                        checked={checked}
+                        onChange={() => toggleSelectCandidate(u)}
+                      />
+                    </label>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        </Modal>
       )}
     </Drawer>
   )

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { App, Button, Input, Popover, Progress, Tooltip } from 'antd'
 import {
   AudioOutlined,
+  BarChartOutlined,
   CloseOutlined,
   DeleteOutlined,
   EditOutlined,
@@ -26,12 +27,14 @@ const EMOJI_PALETTE = [
 export default function MessageComposer({
   chatId,
   currentUid,
+  isGroup = false,
   replyTo,
   editingMessage,
   onClearReply,
   onClearEdit,
   onSend,
   onSaveEdit,
+  onOpenPollModal,
   disabled = false,
 }) {
   const { message } = App.useApp()
@@ -386,6 +389,17 @@ export default function MessageComposer({
                 className="hidden"
                 onChange={handleFilesSelected}
               />
+
+              {isGroup && (
+                <Tooltip title="Create group poll">
+                  <Button
+                    type="text"
+                    icon={<BarChartOutlined />}
+                    disabled={disabled || uploading}
+                    onClick={onOpenPollModal}
+                  />
+                </Tooltip>
+              )}
             </>
           )}
 
