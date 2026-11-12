@@ -257,7 +257,7 @@ export default function MessageBubble({
     <div
       id={`msg-${message.id}`}
       className={cn(
-        'group flex items-end gap-2 py-1 transition-colors',
+        'group flex min-w-0 w-full items-end gap-2 py-1 transition-colors',
         isOwn ? 'flex-row-reverse' : 'flex-row',
       )}
     >
@@ -267,18 +267,28 @@ export default function MessageBubble({
         </Avatar>
       )}
 
-      <div className={cn('flex max-w-[78%] flex-col', isOwn ? 'items-end' : 'items-start')}>
+      <div
+        className={cn(
+          'flex min-w-0 max-w-[78%] sm:max-w-[70%] flex-col',
+          isOwn ? 'items-end' : 'items-start',
+        )}
+      >
         {isGroup && !isOwn && (
           <span className="mb-0.5 ml-1 text-[11px] font-medium text-muted">
             {message.senderName}
           </span>
         )}
 
-        <div className={cn('flex items-center gap-1', isOwn ? 'flex-row-reverse' : 'flex-row')}>
+        <div
+          className={cn(
+            'flex min-w-0 max-w-full items-center gap-1',
+            isOwn ? 'flex-row-reverse' : 'flex-row',
+          )}
+        >
           {/* Bubble */}
           <div
             className={cn(
-              'relative rounded-2xl px-3.5 py-2 text-sm shadow-sm',
+              'relative min-w-0 max-w-full overflow-hidden rounded-2xl px-3.5 py-2 text-sm shadow-sm [overflow-wrap:anywhere] [word-break:break-word]',
               isDeleted
                 ? 'border border-dashed border-[var(--color-border)] bg-transparent italic text-muted'
                 : isOwn
@@ -325,7 +335,7 @@ export default function MessageBubble({
                   <Image.PreviewGroup>
                     <div
                       className={cn(
-                        'mb-1.5 grid gap-1.5 overflow-hidden rounded-lg',
+                        'mb-1.5 grid max-w-[260px] sm:max-w-[300px] gap-1.5 overflow-hidden rounded-lg',
                         imageAttachments.length > 1 ? 'grid-cols-2' : 'grid-cols-1',
                       )}
                     >
@@ -334,7 +344,7 @@ export default function MessageBubble({
                           key={idx}
                           src={img.url}
                           alt={img.name || 'Image'}
-                          className="max-h-72 w-full rounded-md object-cover"
+                          className="max-h-64 w-full rounded-md object-cover"
                         />
                       ))}
                     </div>
@@ -379,7 +389,7 @@ export default function MessageBubble({
 
                 {/* Text body */}
                 {message.text && (
-                  <div className="whitespace-pre-wrap break-words leading-relaxed">
+                  <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] leading-relaxed">
                     {renderTextWithLinks(message.text, isOwn)}
                   </div>
                 )}

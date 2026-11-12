@@ -131,8 +131,6 @@ export async function acceptContactRequest(requestDoc) {
     createdAt: serverTimestamp(),
   })
   batch.delete(doc(db, 'contactRequests', getRequestId(fromUid, toUid)))
-  // Also clean up reverse request if any existed
-  batch.delete(doc(db, 'contactRequests', getRequestId(toUid, fromUid)))
 
   await batch.commit()
 }

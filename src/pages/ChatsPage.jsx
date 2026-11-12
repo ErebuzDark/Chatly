@@ -488,7 +488,7 @@ export default function ChatsPage() {
                   loadOlder()
                 }
               }}
-              className="flex-1 overflow-y-auto px-4 py-3 space-y-1"
+              className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-1"
             >
               {hasMore && (
                 <div className="py-2 text-center">

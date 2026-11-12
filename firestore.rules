@@ -83,9 +83,13 @@ service cloud.firestore {
                     && request.resource.data.fromUid == request.auth.uid
                     && request.resource.data.toUid != request.auth.uid
                     && !isBlocked(request.resource.data.fromUid, request.resource.data.toUid);
-      allow update, delete: if signedIn()
-                            && (resource.data.fromUid == request.auth.uid
-                                || resource.data.toUid == request.auth.uid);
+      allow update: if signedIn()
+                    && (resource.data.fromUid == request.auth.uid
+                        || resource.data.toUid == request.auth.uid);
+      allow delete: if signedIn()
+                    && (resource == null
+                        || resource.data.fromUid == request.auth.uid
+                        || resource.data.toUid == request.auth.uid);
     }
 
     // 4. User reports (create-only by reporter)
