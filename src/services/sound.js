@@ -77,3 +77,47 @@ export function playSendSound() {
   }
 }
 
+export function playRingPulse() {
+  try {
+    const ctx = getContext()
+    if (!ctx) return
+
+    const now = ctx.currentTime
+    const osc1 = ctx.createOscillator()
+    const osc2 = ctx.createOscillator()
+    const gain = ctx.createGain()
+
+    osc1.type = 'sine'
+    osc2.type = 'sine'
+
+    // Soft marimba-style two-chord ringtone pulse
+    osc1.frequency.setValueAtTime(587.33, now) // D5
+    osc2.frequency.setValueAtTime(880, now) // A5
+
+    osc1.frequency.setValueAtTime(659.25, now + 0.22) // E5
+    osc2.frequency.setValueAtTime(987.77, now + 0.22) // B5
+
+    gain.gain.setValueAtTime(0.001, now)
+    gain.gain.exponentialRampToValueAtTime(0.14, now + 0.03)
+    gain.gain.exponentialRampToValueAtTime(0.02, now + 0.2)
+    gain.gain.exponentialRampToValueAtTime(0.14, now + 0.25)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.65)
+
+    osc1.connect(gain)
+    osc2.connect(gain)
+    gain.connect(ctx.destination)
+
+    osc1.start(now)
+    osc2.start(now)
+    osc1.stop(now + 0.68)
+    osc2.stop(now + 0.68)
+  } catch {
+    // ignore
+  }
+}
+
+export function startRingtone() {
+  playRingPulse()
+  const timer = setInterval(playRingPulse, 1800)
+  return () => clearInterval(timer)
+}

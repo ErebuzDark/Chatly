@@ -18,6 +18,7 @@ export function ChatsProvider({ children }) {
   const [usersMap, setUsersMap] = useState({})
   const [loading, setLoading] = useState(true)
   const [activeChatId, setActiveChatId] = useState(null)
+  const [openCallChatId, setOpenCallChatId] = useState(null)
 
   const prevLastMsgIdsRef = useRef(new Map())
   const initialLoadRef = useRef(true)
@@ -218,8 +219,10 @@ export function ChatsProvider({ children }) {
       totalUnread,
       activeChatId,
       setActiveChatId,
+      openCallChatId,
+      setOpenCallChatId,
     }),
-    [chats, usersMap, loading, totalUnread, activeChatId],
+    [chats, usersMap, loading, totalUnread, activeChatId, openCallChatId],
   )
 
   return createElement(ChatsContext.Provider, { value }, children)

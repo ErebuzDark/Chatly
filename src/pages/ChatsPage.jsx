@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore'
 import {
@@ -16,9 +16,11 @@ import {
   CloseOutlined,
   InfoCircleOutlined,
   MessageOutlined,
+  PhoneOutlined,
   PushpinFilled,
   SearchOutlined,
   TeamOutlined,
+  VideoCameraOutlined,
 } from '@ant-design/icons'
 import { db } from '@/lib/firebase'
 import { useAuth } from '@/features/auth/hooks/useAuth'
@@ -28,9 +30,11 @@ import { useChatMessages } from '@/features/chats/hooks/useChatMessages'
 import {
   deleteMessageForMe,
   editMessage,
+  joinChatCall,
   markChatRead,
   sendMessage,
   sendPollMessage,
+  startChatCall,
   toggleClosePoll,
   togglePinMessage,
   toggleReaction,
@@ -62,7 +66,13 @@ import { getErrorMessage } from '@/lib/firebaseErrors'
 export default function ChatsPage() {
   const { profile: currentUser } = useAuth()
   const { contacts, blocks } = useContacts()
-  const { chats, loading: chatsLoading, setActiveChatId } = useChats()
+  const {
+    chats,
+    loading: chatsLoading,
+    setActiveChatId,
+    openCallChatId,
+    setOpenCallChatId,
+  } = useChats()
   const { message } = App.useApp()
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -92,7 +102,9 @@ export default function ChatsPage() {
   const [pollModalOpen, setPollModalOpen] = useState(false)
 
   const listRef = useRef(null)
-  const prevMsgCountRef = useRef(0)
+  const lastMsgIdRef = useRef(null)
+  const initialChatScrollRef = useRef(null)
+  const prependAnchorRef = useRef(null)
 
   const selectChat = (id) => {
     if (id) setSearchParams({ chatId: id })
@@ -143,23 +155,63 @@ export default function ChatsPage() {
     )
   }, [otherUid, selectedChat?.id, selectedChat?.memberInfo])
 
-  // Mark chat read when viewing messages
+  // Mark chat read when viewing messages (updates unread count + lastReadAt + lastReadMessageId)
   const unreadInSelected = selectedChat?.unreadCounts?.[currentUser?.uid] || 0
-  useEffect(() => {
-    if (selectedChatId && currentUser?.uid && (unreadInSelected > 0 || messages.length > 0)) {
-      markChatRead(selectedChatId, currentUser.uid)
-    }
-  }, [selectedChatId, currentUser?.uid, unreadInSelected, messages.length])
+  const latestMsgId = messages[messages.length - 1]?.id || null
+  const myLastReadMsgId = selectedChat?.lastReadMessageId?.[currentUser?.uid] || null
 
-  // Auto-scroll to bottom when new recent messages arrive
   useEffect(() => {
+    if (!selectedChatId || !currentUser?.uid) return
+    if (unreadInSelected > 0 || (latestMsgId && latestMsgId !== myLastReadMsgId)) {
+      markChatRead(selectedChatId, currentUser.uid, latestMsgId)
+    }
+  }, [selectedChatId, currentUser?.uid, unreadInSelected, latestMsgId, myLastReadMsgId])
+
+  const handleLoadOlder = useCallback(async () => {
+    const el = listRef.current
+    if (!el || loadingOlder || !hasMore) return
+    prependAnchorRef.current = {
+      scrollHeight: el.scrollHeight,
+      scrollTop: el.scrollTop,
+    }
+    await loadOlder()
+  }, [loadOlder, loadingOlder, hasMore])
+
+  // Preserve exact scroll position when older messages are prepended (back-reading),
+  // and scroll to bottom on initial chat load or when a new message arrives at the bottom.
+  useLayoutEffect(() => {
     const el = listRef.current
     if (!el) return
-    if (messages.length > prevMsgCountRef.current) {
-      el.scrollTop = el.scrollHeight
+
+    // 1. If we just prepended older messages via back-reading, keep scroll anchored
+    if (prependAnchorRef.current) {
+      const { scrollHeight: prevHeight, scrollTop: prevTop } = prependAnchorRef.current
+      el.scrollTop = el.scrollHeight - prevHeight + prevTop
+      prependAnchorRef.current = null
+      return
     }
-    prevMsgCountRef.current = messages.length
-  }, [messages.length, selectedChatId])
+
+    const lastMsg = messages[messages.length - 1]
+    const lastId = lastMsg?.id || null
+
+    // 2. First load of the selected chat -> jump to bottom
+    if (messages.length > 0 && initialChatScrollRef.current !== selectedChatId) {
+      el.scrollTop = el.scrollHeight
+      initialChatScrollRef.current = selectedChatId
+      lastMsgIdRef.current = lastId
+      return
+    }
+
+    // 3. New message appended at the bottom -> scroll down if sent by me or already near bottom
+    if (lastId && lastId !== lastMsgIdRef.current) {
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
+      const isMine = lastMsg?.senderId === currentUser?.uid
+      if (isMine || distFromBottom < 220) {
+        el.scrollTop = el.scrollHeight
+      }
+      lastMsgIdRef.current = lastId
+    }
+  }, [messages, selectedChatId, currentUser?.uid])
 
   const visibleMessages = useMemo(() => {
     if (!currentUser?.uid) return []
@@ -183,6 +235,56 @@ export default function ChatsPage() {
     () => new Set(pinnedMessages.map((p) => p.id)),
     [pinnedMessages],
   )
+
+  // Compute Messenger-style Read Receipt Chat Heads:
+  // For each other participant in the chat, find the latest visible message they have seen.
+  const seenByByMessageId = useMemo(() => {
+    const map = new Map()
+    if (!selectedChat || !currentUser?.uid || visibleMessages.length === 0) return map
+
+    const otherUids = (selectedChat.memberIds || []).filter((id) => id !== currentUser.uid)
+
+    for (const mUid of otherUids) {
+      const readAtMs = toDate(selectedChat.lastReadAt?.[mUid])?.getTime() || 0
+      const readMsgId = selectedChat.lastReadMessageId?.[mUid] || null
+      const memberProfile = selectedChat.memberInfo?.[mUid] || {
+        uid: mUid,
+        displayName: 'User',
+        photoURL: null,
+      }
+
+      // Scan from newest message to oldest to find where this member stopped reading
+      let stoppedAtMsgId = null
+      for (let i = visibleMessages.length - 1; i >= 0; i -= 1) {
+        const msg = visibleMessages[i]
+        if (msg.type === 'system') continue
+
+        const msgMs = toDate(msg.createdAt)?.getTime() || 0
+        const hasSeenThis =
+          (readMsgId && msg.id === readMsgId) ||
+          msg.senderId === mUid ||
+          (readAtMs > 0 && msgMs > 0 && msgMs <= readAtMs)
+
+        if (hasSeenThis) {
+          stoppedAtMsgId = msg.id
+          break
+        }
+      }
+
+      if (stoppedAtMsgId) {
+        const list = map.get(stoppedAtMsgId) || []
+        list.push({
+          uid: mUid,
+          displayName: memberProfile.displayName || memberProfile.username || 'User',
+          photoURL: memberProfile.photoURL || undefined,
+          seenAt: selectedChat.lastReadAt?.[mUid] || null,
+        })
+        map.set(stoppedAtMsgId, list)
+      }
+    }
+
+    return map
+  }, [selectedChat, currentUser?.uid, visibleMessages])
 
   const handleSend = async ({ text, type, attachments }) => {
     if (!selectedChat || !currentUser) return
@@ -311,6 +413,29 @@ export default function ChatsPage() {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' })
       el.classList.add('bg-primary/15', 'rounded-lg')
       setTimeout(() => el.classList.remove('bg-primary/15', 'rounded-lg'), 1600)
+    }
+  }
+
+  const handleStartOrJoinCall = async (callType = 'video') => {
+    if (!selectedChat || !currentUser?.uid) return
+    if (isBlocked) {
+      message.warning('Cannot call a blocked user.')
+      return
+    }
+    try {
+      if (selectedChat.activeCall) {
+        await joinChatCall(selectedChat.id, currentUser.uid)
+        setOpenCallChatId(selectedChat.id)
+      } else {
+        await startChatCall({
+          chat: selectedChat,
+          callerProfile: currentUser,
+          callType,
+        })
+        setOpenCallChatId(selectedChat.id)
+      }
+    } catch (err) {
+      message.error(getErrorMessage(err))
     }
   }
 
@@ -446,6 +571,25 @@ export default function ChatsPage() {
               </div>
 
               <div className="flex items-center gap-1">
+                {!isBlocked && (
+                  <>
+                    <Tooltip title="Voice call">
+                      <Button
+                        type="text"
+                        icon={<PhoneOutlined />}
+                        onClick={() => handleStartOrJoinCall('audio')}
+                      />
+                    </Tooltip>
+                    <Tooltip title="Video call">
+                      <Button
+                        type="text"
+                        icon={<VideoCameraOutlined />}
+                        onClick={() => handleStartOrJoinCall('video')}
+                      />
+                    </Tooltip>
+                  </>
+                )}
+
                 {pinnedMessages.length > 0 && (
                   <Popover
                     trigger="click"
@@ -507,6 +651,37 @@ export default function ChatsPage() {
               </div>
             </header>
 
+            {/* Active Call Banner (when a call is ongoing in this chat and not currently open) */}
+            {selectedChat.activeCall && openCallChatId !== selectedChat.id && (
+              <div className="flex items-center justify-between gap-3 border-b border-emerald-500/30 bg-emerald-500/15 px-4 py-2 text-xs">
+                <div className="flex items-center gap-2 font-medium text-emerald-400">
+                  <span className="h-2 w-2 animate-ping rounded-full bg-emerald-400" />
+                  <span>
+                    {selectedChat.activeCall.callType === 'audio'
+                      ? 'Voice call'
+                      : 'Video call'}{' '}
+                    in progress ({(selectedChat.activeCall.participants || []).length}{' '}
+                    joined)
+                  </span>
+                </div>
+                <Button
+                  size="small"
+                  type="primary"
+                  style={{ backgroundColor: '#10b981' }}
+                  icon={
+                    selectedChat.activeCall.callType === 'audio' ? (
+                      <PhoneOutlined />
+                    ) : (
+                      <VideoCameraOutlined />
+                    )
+                  }
+                  onClick={() => handleStartOrJoinCall(selectedChat.activeCall.callType)}
+                >
+                  Join Call
+                </Button>
+              </div>
+            )}
+
             {/* In-chat Search Bar */}
             {searchOpen && (
               <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2">
@@ -563,8 +738,8 @@ export default function ChatsPage() {
               <div
                 ref={listRef}
                 onScroll={(e) => {
-                  if (e.currentTarget.scrollTop < 40 && hasMore && !loadingOlder) {
-                    loadOlder()
+                  if (e.currentTarget.scrollTop < 60 && hasMore && !loadingOlder) {
+                    handleLoadOlder()
                   }
                 }}
                 className="relative z-10 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-1"
@@ -574,7 +749,7 @@ export default function ChatsPage() {
                   <Button
                     size="small"
                     loading={loadingOlder}
-                    onClick={loadOlder}
+                    onClick={handleLoadOlder}
                   >
                     Load earlier messages
                   </Button>
@@ -619,6 +794,7 @@ export default function ChatsPage() {
                         currentUid={currentUser?.uid}
                         isGroup={isGroup}
                         isPinned={pinnedIds.has(msg.id)}
+                        seenByUsers={seenByByMessageId.get(msg.id)}
                         onReply={(m) => {
                           setEditingMessage(null)
                           setReplyTo(m)

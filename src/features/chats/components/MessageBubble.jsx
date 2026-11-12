@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { memo, useRef, useState } from 'react'
 import { Avatar, Button, Dropdown, Image, Popover, Slider, Tooltip } from 'antd'
 import {
   BarChartOutlined,
@@ -259,12 +259,15 @@ function PollCard({ message, chat, currentUid, isOwn, onVotePoll, onToggleCloseP
   )
 }
 
-export default function MessageBubble({
+const EMPTY_SEEN = []
+
+const MessageBubble = memo(function MessageBubble({
   message,
   chat,
   currentUid,
   isGroup,
   isPinned,
+  seenByUsers = EMPTY_SEEN,
   onReply,
   onEdit,
   onUnsend,
@@ -370,13 +373,13 @@ export default function MessageBubble({
   )
 
   return (
-    <div
-      id={`msg-${message.id}`}
-      className={cn(
-        'group flex min-w-0 w-full items-end gap-2 py-1 transition-colors',
-        isOwn ? 'flex-row-reverse' : 'flex-row',
-      )}
-    >
+    <div id={`msg-${message.id}`} className="py-1 transition-colors">
+      <div
+        className={cn(
+          'group flex min-w-0 w-full items-end gap-2',
+          isOwn ? 'flex-row-reverse' : 'flex-row',
+        )}
+      >
       {!isOwn && (
         <Avatar
           key={senderAvatar || 'no-avatar'}
@@ -651,6 +654,45 @@ export default function MessageBubble({
         )}
       </div>
     </div>
+
+    {/* Messenger-style Seen-By Mini Chat Heads */}
+    {seenByUsers.length > 0 && (
+      <div className="mt-0.5 flex items-center justify-end gap-1 pr-1">
+        {seenByUsers.slice(0, 6).map((u) => {
+          const seenTime = formatMessageTime(u.seenAt)
+          return (
+            <Tooltip
+              key={u.uid}
+              title={`Seen by ${u.displayName}${seenTime ? ` at ${seenTime}` : ''}`}
+            >
+              <Avatar
+                key={`${u.uid}-${u.photoURL || 'no-avatar'}`}
+                size={16}
+                src={u.photoURL}
+                className="bg-primary text-[9px] font-semibold ring-1 ring-[var(--color-surface)] transition-transform hover:scale-125"
+              >
+                {getInitials(u.displayName)}
+              </Avatar>
+            </Tooltip>
+          )
+        })}
+        {seenByUsers.length > 6 && (
+          <Tooltip
+            title={`Also seen by ${seenByUsers
+              .slice(6)
+              .map((u) => u.displayName)
+              .join(', ')}`}
+          >
+            <span className="rounded-full bg-[var(--color-surface-raised)] px-1.5 text-[10px] text-muted">
+              +{seenByUsers.length - 6}
+            </span>
+          </Tooltip>
+        )}
+      </div>
+    )}
+    </div>
   )
-}
+})
+
+export default MessageBubble
 

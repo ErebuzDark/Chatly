@@ -12,6 +12,7 @@ import { useContacts } from '@/features/contacts/hooks/useContacts'
 import { cn, getInitials } from '@/lib/utils'
 import AmbientBackground from '@/components/shared/AmbientBackground'
 import VerifyEmailBanner from '@/components/shared/VerifyEmailBanner'
+import CallManager from '@/features/chats/components/CallManager'
 
 const linkClass = ({ isActive }) =>
   cn(
@@ -108,6 +109,7 @@ export default function AppShell() {
   return (
     <ChatsProvider>
       <AppShellInner />
+      <CallManager />
     </ChatsProvider>
   )
 }

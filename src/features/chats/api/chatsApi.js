@@ -231,6 +231,7 @@ export async function sendMessage({
     updatedAt: serverTimestamp(),
     [`typing.${senderProfile.uid}`]: deleteField(),
     [`lastReadAt.${senderProfile.uid}`]: serverTimestamp(),
+    [`lastReadMessageId.${senderProfile.uid}`]: msgRef.id,
     [`lastDeliveredAt.${senderProfile.uid}`]: serverTimestamp(),
     [`unreadCounts.${senderProfile.uid}`]: 0,
   }
@@ -309,6 +310,7 @@ export async function sendPollMessage({
     lastMessageAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     [`lastReadAt.${senderProfile.uid}`]: serverTimestamp(),
+    [`lastReadMessageId.${senderProfile.uid}`]: msgRef.id,
     [`lastDeliveredAt.${senderProfile.uid}`]: serverTimestamp(),
     [`unreadCounts.${senderProfile.uid}`]: 0,
   }
@@ -411,13 +413,17 @@ export async function togglePinMessage({ chatId, message, isPinned, currentPinne
   }
 }
 
-export async function markChatRead(chatId, uid) {
+export async function markChatRead(chatId, uid, lastMessageId = null) {
   if (!chatId || !uid) return
-  await updateDoc(doc(db, 'chats', chatId), {
+  const patch = {
     [`unreadCounts.${uid}`]: 0,
     [`lastReadAt.${uid}`]: serverTimestamp(),
     [`lastDeliveredAt.${uid}`]: serverTimestamp(),
-  }).catch(() => {})
+  }
+  if (lastMessageId) {
+    patch[`lastReadMessageId.${uid}`] = lastMessageId
+  }
+  await updateDoc(doc(db, 'chats', chatId), patch).catch(() => {})
 }
 
 export async function markChatDelivered(chatId, uid) {
@@ -622,5 +628,134 @@ export async function joinGroupByInviteCode(inviteCode, userProfile) {
   })
 
   return group.id
+}
+
+/* ---------------- Video & Voice Calling (Jitsi + Firestore Signaling) ---------------- */
+
+export async function startChatCall({ chat, callerProfile, callType = 'video' }) {
+  if (!chat?.id || !callerProfile?.uid) throw new Error('Invalid chat or caller')
+
+  const callId = `${Date.now().toString(36)}_${randomInviteCode(6)}`
+  const safeChatId = chat.id.replace(/[^a-zA-Z0-9]/g, '').slice(0, 24)
+  const roomName = `ChatlyRoom_${safeChatId}_${callId}`
+
+  const activeCall = {
+    callId,
+    roomName,
+    callType, // 'video' | 'audio'
+    callerId: callerProfile.uid,
+    callerName: callerProfile.displayName || callerProfile.username || 'User',
+    callerPhoto: callerProfile.photoURL || null,
+    chatId: chat.id,
+    chatTitle: chat.type === 'group' ? chat.title || 'Group Chat' : '',
+    isGroup: chat.type === 'group',
+    status: 'ringing',
+    participants: [callerProfile.uid],
+    declinedBy: [],
+    startedAt: Date.now(),
+  }
+
+  const label = callType === 'audio' ? '📞 Voice call' : '📹 Video call'
+
+  await updateDoc(doc(db, 'chats', chat.id), {
+    activeCall,
+    lastMessage: {
+      id: callId,
+      text: `${label} started by ${activeCall.callerName}`,
+      senderId: callerProfile.uid,
+      senderName: activeCall.callerName,
+      type: 'system',
+      createdAt: new Date().toISOString(),
+    },
+    lastMessageAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  })
+
+  await addDoc(collection(db, 'chats', chat.id, 'messages'), {
+    chatId: chat.id,
+    senderId: callerProfile.uid,
+    senderName: activeCall.callerName,
+    type: 'system',
+    text: `${activeCall.callerName} started a ${callType === 'audio' ? 'voice' : 'video'} call`,
+    attachments: [],
+    reactions: {},
+    deletedForAll: false,
+    deletedFor: [],
+    createdAt: serverTimestamp(),
+  })
+
+  return activeCall
+}
+
+export async function joinChatCall(chatId, uid) {
+  if (!chatId || !uid) return
+  await updateDoc(doc(db, 'chats', chatId), {
+    'activeCall.status': 'active',
+    'activeCall.participants': arrayUnion(uid),
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function declineChatCall(chat, uid, userName = 'User') {
+  if (!chat?.id || !uid || !chat.activeCall) return
+  const isDirect = chat.type !== 'group'
+
+  if (isDirect) {
+    // In a 1:1 chat, declining ends the call immediately
+    await updateDoc(doc(db, 'chats', chat.id), {
+      activeCall: deleteField(),
+      updatedAt: serverTimestamp(),
+    })
+    await addDoc(collection(db, 'chats', chat.id, 'messages'), {
+      chatId: chat.id,
+      senderId: uid,
+      senderName: userName,
+      type: 'system',
+      text: `Missed ${chat.activeCall.callType === 'audio' ? 'voice' : 'video'} call`,
+      attachments: [],
+      reactions: {},
+      deletedForAll: false,
+      deletedFor: [],
+      createdAt: serverTimestamp(),
+    })
+  } else {
+    // In a group chat, mark this user as declined so it stops ringing on their screen
+    await updateDoc(doc(db, 'chats', chat.id), {
+      'activeCall.declinedBy': arrayUnion(uid),
+    })
+  }
+}
+
+export async function leaveOrEndChatCall(chat, uid, userName = 'User', forceEnd = false) {
+  if (!chat?.id || !uid) return
+  const activeCall = chat.activeCall
+  if (!activeCall) return
+
+  const remaining = (activeCall.participants || []).filter((id) => id !== uid)
+  const shouldEnd = forceEnd || chat.type !== 'group' || remaining.length === 0
+
+  if (shouldEnd) {
+    await updateDoc(doc(db, 'chats', chat.id), {
+      activeCall: deleteField(),
+      updatedAt: serverTimestamp(),
+    })
+    await addDoc(collection(db, 'chats', chat.id, 'messages'), {
+      chatId: chat.id,
+      senderId: uid,
+      senderName: userName,
+      type: 'system',
+      text: `${activeCall.callType === 'audio' ? '📞 Voice' : '📹 Video'} call ended`,
+      attachments: [],
+      reactions: {},
+      deletedForAll: false,
+      deletedFor: [],
+      createdAt: serverTimestamp(),
+    })
+  } else {
+    await updateDoc(doc(db, 'chats', chat.id), {
+      'activeCall.participants': arrayRemove(uid),
+      updatedAt: serverTimestamp(),
+    })
+  }
 }
 
