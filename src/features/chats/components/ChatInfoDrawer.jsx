@@ -258,7 +258,7 @@ export default function ChatInfoDrawer({
       title={isGroup ? 'Group Info' : 'Conversation Info'}
       open={open}
       onClose={onClose}
-      width={360}
+      width="min(360px, 100vw)"
     >
       <div className="space-y-6">
         {/* Header Summary */}

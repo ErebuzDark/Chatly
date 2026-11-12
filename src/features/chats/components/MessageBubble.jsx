@@ -50,7 +50,7 @@ function VoiceNotePlayer({ url, duration = 0, isOwn }) {
   }
 
   return (
-    <div className="flex min-w-52 items-center gap-2.5 py-1">
+    <div className="flex w-[min(200px,62vw)] sm:w-56 max-w-full items-center gap-2.5 py-1">
       <audio
         ref={audioRef}
         src={url}
@@ -169,9 +169,9 @@ function PollCard({ message, chat, currentUid, isOwn, onVotePoll, onToggleCloseP
   }
 
   return (
-    <div className="min-w-60 sm:min-w-68 space-y-2.5 py-1">
+    <div className="w-[min(230px,68vw)] sm:w-68 max-w-full space-y-2.5 py-1">
       <div className="flex items-start justify-between gap-2">
-        <div className="font-semibold leading-snug">{poll.question}</div>
+        <div className="min-w-0 flex-1 font-semibold leading-snug break-words">{poll.question}</div>
         <BarChartOutlined className={cn('shrink-0 text-base', isOwn ? 'text-white/80' : 'text-primary')} />
       </div>
 
@@ -201,7 +201,7 @@ function PollCard({ message, chat, currentUid, isOwn, onVotePoll, onToggleCloseP
                 disabled={isClosed}
                 onClick={() => onVotePoll?.(message, opt.id)}
                 className={cn(
-                  'relative w-full overflow-hidden rounded-lg border px-3 py-2 text-left text-xs transition-all',
+                  'relative w-full overflow-hidden rounded-lg border px-2.5 sm:px-3 py-2 text-left text-xs transition-all',
                   isClosed ? 'cursor-not-allowed opacity-85' : 'cursor-pointer hover:opacity-95',
                   isOwn
                     ? myVote
@@ -221,9 +221,13 @@ function PollCard({ message, chat, currentUid, isOwn, onVotePoll, onToggleCloseP
                   )}
                 />
                 <div className="relative flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-1.5 break-words">
-                    {myVote ? <CheckCircleFilled /> : <span className="inline-block h-3.5 w-3.5 rounded-full border border-current opacity-60" />}
-                    <span>{opt.text}</span>
+                  <span className="flex min-w-0 flex-1 items-center gap-1.5 break-words">
+                    {myVote ? (
+                      <CheckCircleFilled className="shrink-0" />
+                    ) : (
+                      <span className="inline-block h-3.5 w-3.5 shrink-0 rounded-full border border-current opacity-60" />
+                    )}
+                    <span className="min-w-0 break-words">{opt.text}</span>
                   </span>
                   <span className="shrink-0 text-[11px] opacity-85">
                     {count} ({pct}%)
@@ -237,7 +241,7 @@ function PollCard({ message, chat, currentUid, isOwn, onVotePoll, onToggleCloseP
 
       <div
         className={cn(
-          'flex items-center justify-between pt-0.5 text-[11px]',
+          'flex flex-wrap items-center justify-between gap-2 pt-0.5 text-[11px]',
           isOwn ? 'text-white/80' : 'text-muted',
         )}
       >
@@ -249,7 +253,7 @@ function PollCard({ message, chat, currentUid, isOwn, onVotePoll, onToggleCloseP
           <button
             type="button"
             onClick={() => onToggleClosePoll?.(message, !isClosed)}
-            className="cursor-pointer border-0 bg-transparent p-0 text-[11px] font-semibold text-current underline opacity-90 hover:opacity-100"
+            className="shrink-0 cursor-pointer border-0 bg-transparent p-0 text-[11px] font-semibold text-current underline opacity-90 hover:opacity-100"
           >
             {isClosed ? 'Reopen poll' : 'End poll'}
           </button>
@@ -320,6 +324,33 @@ const MessageBubble = memo(function MessageBubble({
   )
 
   const menuItems = [
+    !isDeleted && {
+      key: 'quick-reactions',
+      label: (
+        <div
+          className="flex items-center gap-1 py-0.5"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {QUICK_REACTIONS.map((emoji) => {
+            const reacted = (message.reactions?.[emoji] || []).includes(currentUid)
+            return (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => onReaction?.(message, emoji, reacted)}
+                className={cn(
+                  'cursor-pointer rounded-md border-0 p-1 text-base transition-transform hover:scale-125',
+                  reacted ? 'bg-primary/20' : 'bg-transparent',
+                )}
+              >
+                {emoji}
+              </button>
+            )
+          })}
+        </div>
+      ),
+    },
+    !isDeleted && { type: 'divider' },
     {
       key: 'reply',
       icon: <UndoOutlined />,
@@ -376,16 +407,16 @@ const MessageBubble = memo(function MessageBubble({
     <div id={`msg-${message.id}`} className="py-1 transition-colors">
       <div
         className={cn(
-          'group flex min-w-0 w-full items-end gap-2',
+          'group flex min-w-0 w-full items-end gap-1.5 sm:gap-2',
           isOwn ? 'flex-row-reverse' : 'flex-row',
         )}
       >
       {!isOwn && (
         <Avatar
           key={senderAvatar || 'no-avatar'}
-          size={30}
+          size={28}
           src={senderAvatar}
-          className="shrink-0 bg-primary text-xs"
+          className="shrink-0 bg-primary text-xs sm:h-[30px] sm:w-[30px]"
         >
           {getInitials(senderDisplayName)}
         </Avatar>
@@ -393,7 +424,7 @@ const MessageBubble = memo(function MessageBubble({
 
       <div
         className={cn(
-          'flex min-w-0 max-w-[78%] sm:max-w-[70%] flex-col',
+          'flex min-w-0 max-w-[88%] sm:max-w-[74%] flex-col',
           isOwn ? 'items-end' : 'items-start',
         )}
       >
@@ -405,14 +436,14 @@ const MessageBubble = memo(function MessageBubble({
 
         <div
           className={cn(
-            'flex min-w-0 max-w-full items-center gap-1',
+            'flex min-w-0 max-w-full items-center gap-0.5 sm:gap-1',
             isOwn ? 'flex-row-reverse' : 'flex-row',
           )}
         >
           {/* Bubble */}
           <div
             className={cn(
-              'relative min-w-0 max-w-full overflow-hidden rounded-2xl px-3.5 py-2 text-sm shadow-sm [overflow-wrap:anywhere] [word-break:break-word]',
+              'relative min-w-0 max-w-full overflow-hidden rounded-2xl px-3 py-2 sm:px-3.5 text-sm shadow-sm [overflow-wrap:anywhere] [word-break:break-word]',
               isDeleted
                 ? 'border border-dashed border-[var(--color-border)] bg-transparent italic text-muted'
                 : isOwn
@@ -573,51 +604,58 @@ const MessageBubble = memo(function MessageBubble({
             </div>
           </div>
 
-          {/* Hover Action Toolbar */}
+          {/* Hover / Tap Action Toolbar (compact single menu trigger on mobile so bubbles aren't squeezed) */}
           {!isDeleted && (
-            <div className="flex items-center opacity-0 transition-opacity group-hover:opacity-100">
-              <Popover
-                open={reactionOpen}
-                onOpenChange={setReactionOpen}
-                trigger="click"
-                placement="top"
-                content={
-                  <div className="flex items-center gap-1">
-                    {QUICK_REACTIONS.map((emoji) => {
-                      const reacted = (message.reactions?.[emoji] || []).includes(currentUid)
-                      return (
-                        <button
-                          key={emoji}
-                          type="button"
-                          onClick={() => {
-                            onReaction?.(message, emoji, reacted)
-                            setReactionOpen(false)
-                          }}
-                          className={cn(
-                            'cursor-pointer rounded-md border-0 p-1.5 text-lg transition-transform hover:scale-125',
-                            reacted ? 'bg-primary/20' : 'bg-transparent',
-                          )}
-                        >
-                          {emoji}
-                        </button>
-                      )
-                    })}
-                  </div>
-                }
-              >
-                <Button type="text" size="small" icon={<SmileOutlined />} />
-              </Popover>
+            <div className="flex shrink-0 items-center sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100">
+              <div className="hidden sm:flex items-center">
+                <Popover
+                  open={reactionOpen}
+                  onOpenChange={setReactionOpen}
+                  trigger="click"
+                  placement="top"
+                  content={
+                    <div className="flex items-center gap-1">
+                      {QUICK_REACTIONS.map((emoji) => {
+                        const reacted = (message.reactions?.[emoji] || []).includes(currentUid)
+                        return (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => {
+                              onReaction?.(message, emoji, reacted)
+                              setReactionOpen(false)
+                            }}
+                            className={cn(
+                              'cursor-pointer rounded-md border-0 p-1.5 text-lg transition-transform hover:scale-125',
+                              reacted ? 'bg-primary/20' : 'bg-transparent',
+                            )}
+                          >
+                            {emoji}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  }
+                >
+                  <Button type="text" size="small" icon={<SmileOutlined />} />
+                </Popover>
 
-              <Button
-                type="text"
-                size="small"
-                icon={<UndoOutlined />}
-                title="Reply"
-                onClick={() => onReply?.(message)}
-              />
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<UndoOutlined />}
+                  title="Reply"
+                  onClick={() => onReply?.(message)}
+                />
+              </div>
 
               <Dropdown menu={{ items: menuItems }} trigger={['click']}>
-                <Button type="text" size="small" icon={<MoreOutlined />} />
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<MoreOutlined />}
+                  className="!h-6 !w-6 !min-w-0 !p-0 text-muted opacity-60 hover:opacity-100 sm:!h-6 sm:!w-6 sm:opacity-100"
+                />
               </Dropdown>
             </div>
           )}

@@ -184,7 +184,7 @@ export default function LinkEmbedPreview({ url, isOwn }) {
     return (
       <div
         className={cn(
-          'mt-2 w-68 sm:w-80 overflow-hidden rounded-xl border',
+          'mt-2 w-[min(235px,68vw)] sm:w-80 max-w-full overflow-hidden rounded-xl border',
           isOwn
             ? 'border-white/25 bg-black/20 text-white'
             : 'border-[var(--color-border)] bg-[var(--color-surface)] text-foreground',
@@ -226,7 +226,7 @@ export default function LinkEmbedPreview({ url, isOwn }) {
   return (
     <div
       className={cn(
-        'mt-2 w-68 sm:w-80 overflow-hidden rounded-xl border text-xs transition-all',
+        'mt-2 w-[min(235px,68vw)] sm:w-80 max-w-full overflow-hidden rounded-xl border text-xs transition-all',
         isOwn
           ? 'border-white/25 bg-black/20 text-white'
           : 'border-[var(--color-border)] bg-[var(--color-surface)] text-foreground',

@@ -81,7 +81,7 @@ function AppShellInner() {
 
       <main className="glass flex min-w-0 flex-1 flex-col overflow-hidden md:rounded-lg">
         <VerifyEmailBanner />
-        <div className="min-h-0 flex-1 overflow-y-auto pb-20 md:pb-0">
+        <div className="min-h-0 flex-1 overflow-y-auto pb-[calc(3.75rem+env(safe-area-inset-bottom))] md:pb-0">
           <Outlet />
         </div>
       </main>

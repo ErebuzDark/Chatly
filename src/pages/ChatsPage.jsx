@@ -510,12 +510,12 @@ export default function ChatsPage() {
         ) : (
           <>
             {/* Conversation Header */}
-            <header className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface-raised)] px-4 py-2.5">
-              <div className="flex min-w-0 items-center gap-3">
+            <header className="flex items-center justify-between gap-2 sm:gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface-raised)] px-2.5 py-2 sm:px-4 sm:py-2.5">
+              <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
                 <Button
                   type="text"
                   icon={<ArrowLeftOutlined />}
-                  className="md:!hidden"
+                  className="md:!hidden !px-1.5 shrink-0"
                   onClick={() => selectChat(null)}
                 />
 
@@ -525,20 +525,20 @@ export default function ChatsPage() {
                 >
                   <Avatar
                     key={avatar || 'no-avatar'}
-                    size={40}
+                    size={36}
                     src={avatar || undefined}
                     icon={isGroup && !avatar ? <TeamOutlined /> : undefined}
-                    className="bg-primary font-semibold"
+                    className="bg-primary font-semibold sm:!h-10 sm:!w-10"
                   >
                     {!isGroup && getInitials(title)}
                   </Avatar>
                   {online && (
-                    <span className="absolute right-0 bottom-0 h-3 w-3 rounded-full border-2 border-[var(--color-surface)] bg-emerald-500" />
+                    <span className="absolute right-0 bottom-0 h-2.5 w-2.5 sm:h-3 sm:w-3 rounded-full border-2 border-[var(--color-surface)] bg-emerald-500" />
                   )}
                 </div>
 
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
                     {!isGroup && username ? (
                       <Link
                         to={`/u/${username}`}
@@ -556,7 +556,7 @@ export default function ChatsPage() {
                     )}
                   </div>
 
-                  <div className="truncate text-xs text-muted">
+                  <div className="truncate text-[11px] sm:text-xs text-muted">
                     {typers.length > 0 ? (
                       <span className="font-medium text-primary">
                         {isGroup ? `${typers.join(', ')} typing...` : 'typing...'}
@@ -570,13 +570,14 @@ export default function ChatsPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-1">
+              <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
                 {!isBlocked && (
                   <>
                     <Tooltip title="Voice call">
                       <Button
                         type="text"
                         icon={<PhoneOutlined />}
+                        className="!px-2 sm:!px-2.5"
                         onClick={() => handleStartOrJoinCall('audio')}
                       />
                     </Tooltip>
@@ -584,6 +585,7 @@ export default function ChatsPage() {
                       <Button
                         type="text"
                         icon={<VideoCameraOutlined />}
+                        className="!px-2 sm:!px-2.5"
                         onClick={() => handleStartOrJoinCall('video')}
                       />
                     </Tooltip>
@@ -623,6 +625,7 @@ export default function ChatsPage() {
                   >
                     <Button
                       type="text"
+                      className="!px-1.5 sm:!px-2.5"
                       icon={<PushpinFilled className="text-primary" />}
                     >
                       <span className="text-xs">{pinnedMessages.length}</span>
@@ -634,6 +637,7 @@ export default function ChatsPage() {
                   <Button
                     type={searchOpen ? 'primary' : 'text'}
                     icon={<SearchOutlined />}
+                    className="!px-2 sm:!px-2.5"
                     onClick={() => {
                       setSearchOpen((prev) => !prev)
                       setInChatQuery('')
@@ -645,6 +649,7 @@ export default function ChatsPage() {
                   <Button
                     type="text"
                     icon={<InfoCircleOutlined />}
+                    className="!px-2 sm:!px-2.5"
                     onClick={() => setInfoOpen(true)}
                   />
                 </Tooltip>
@@ -742,7 +747,7 @@ export default function ChatsPage() {
                     handleLoadOlder()
                   }
                 }}
-                className="relative z-10 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-1"
+                className="relative z-10 flex-1 overflow-y-auto overflow-x-hidden px-2.5 py-2.5 sm:px-4 sm:py-3 space-y-1"
               >
               {hasMore && (
                 <div className="py-2 text-center">

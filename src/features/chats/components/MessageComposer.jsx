@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { App, Button, Input, Popover, Progress, Tooltip } from 'antd'
+import { App, Button, Dropdown, Input, Popover, Progress, Tooltip } from 'antd'
 import {
   AudioOutlined,
   BarChartOutlined,
@@ -8,6 +8,7 @@ import {
   EditOutlined,
   PaperClipOutlined,
   PictureOutlined,
+  PlusOutlined,
   SendOutlined,
   SmileOutlined,
   UndoOutlined,
@@ -257,7 +258,7 @@ export default function MessageComposer({
   }
 
   return (
-    <div className="border-t border-[var(--color-border)] bg-[var(--color-surface-raised)] p-3 space-y-2">
+    <div className="border-t border-[var(--color-border)] bg-[var(--color-surface-raised)] px-2 py-2 sm:p-3 space-y-2">
       {/* Reply or Edit Banner */}
       {(replyTo || editingMessage) && (
         <div className="flex items-center justify-between gap-2 rounded-lg bg-primary/15 px-3 py-1.5 text-xs">
@@ -354,17 +355,10 @@ export default function MessageComposer({
           </div>
         </div>
       ) : (
-        <div className="flex items-end gap-1.5">
+        <div className="flex items-end gap-1 sm:gap-1.5">
           {!editingMessage && (
             <>
-              <Tooltip title="Send image">
-                <Button
-                  type="text"
-                  icon={<PictureOutlined />}
-                  disabled={disabled || uploading}
-                  onClick={() => imageInputRef.current?.click()}
-                />
-              </Tooltip>
+              {/* Hidden file inputs */}
               <input
                 ref={imageInputRef}
                 type="file"
@@ -373,15 +367,6 @@ export default function MessageComposer({
                 className="hidden"
                 onChange={handleFilesSelected}
               />
-
-              <Tooltip title="Attach file">
-                <Button
-                  type="text"
-                  icon={<PaperClipOutlined />}
-                  disabled={disabled || uploading}
-                  onClick={() => fileInputRef.current?.click()}
-                />
-              </Tooltip>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -390,16 +375,75 @@ export default function MessageComposer({
                 onChange={handleFilesSelected}
               />
 
-              {isGroup && (
-                <Tooltip title="Create group poll">
+              {/* Mobile: Single compact '+' button for Image / File / Poll so text input stays wide */}
+              <div className="sm:hidden">
+                <Dropdown
+                  trigger={['click']}
+                  placement="topLeft"
+                  disabled={disabled || uploading}
+                  menu={{
+                    items: [
+                      {
+                        key: 'image',
+                        icon: <PictureOutlined />,
+                        label: 'Send image',
+                        onClick: () => imageInputRef.current?.click(),
+                      },
+                      {
+                        key: 'file',
+                        icon: <PaperClipOutlined />,
+                        label: 'Attach file',
+                        onClick: () => fileInputRef.current?.click(),
+                      },
+                      isGroup && {
+                        key: 'poll',
+                        icon: <BarChartOutlined />,
+                        label: 'Create group poll',
+                        onClick: onOpenPollModal,
+                      },
+                    ].filter(Boolean),
+                  }}
+                >
                   <Button
                     type="text"
-                    icon={<BarChartOutlined />}
+                    icon={<PlusOutlined />}
                     disabled={disabled || uploading}
-                    onClick={onOpenPollModal}
+                    className="!px-2"
+                  />
+                </Dropdown>
+              </div>
+
+              {/* Tablet & Desktop: Individual action buttons */}
+              <div className="hidden sm:flex items-center gap-0.5">
+                <Tooltip title="Send image">
+                  <Button
+                    type="text"
+                    icon={<PictureOutlined />}
+                    disabled={disabled || uploading}
+                    onClick={() => imageInputRef.current?.click()}
                   />
                 </Tooltip>
-              )}
+
+                <Tooltip title="Attach file">
+                  <Button
+                    type="text"
+                    icon={<PaperClipOutlined />}
+                    disabled={disabled || uploading}
+                    onClick={() => fileInputRef.current?.click()}
+                  />
+                </Tooltip>
+
+                {isGroup && (
+                  <Tooltip title="Create group poll">
+                    <Button
+                      type="text"
+                      icon={<BarChartOutlined />}
+                      disabled={disabled || uploading}
+                      onClick={onOpenPollModal}
+                    />
+                  </Tooltip>
+                )}
+              </div>
             </>
           )}
 
@@ -407,7 +451,7 @@ export default function MessageComposer({
             trigger="click"
             placement="topLeft"
             content={
-              <div className="grid w-64 grid-cols-8 gap-1">
+              <div className="grid w-60 sm:w-64 grid-cols-8 gap-1">
                 {EMOJI_PALETTE.map((emoji) => (
                   <button
                     key={emoji}
@@ -421,7 +465,12 @@ export default function MessageComposer({
               </div>
             }
           >
-            <Button type="text" icon={<SmileOutlined />} disabled={disabled} />
+            <Button
+              type="text"
+              icon={<SmileOutlined />}
+              disabled={disabled}
+              className="!px-1.5 sm:!px-2"
+            />
           </Popover>
 
           <Input.TextArea
@@ -437,7 +486,7 @@ export default function MessageComposer({
                   ? 'Edit your message...'
                   : 'Write a message...'
             }
-            className="flex-1"
+            className="min-w-0 flex-1"
           />
 
           {!editingMessage && !text.trim() && attachments.length === 0 ? (
@@ -447,6 +496,7 @@ export default function MessageComposer({
                 shape="circle"
                 icon={<AudioOutlined />}
                 disabled={disabled || uploading}
+                className="shrink-0"
                 onClick={startRecording}
               />
             </Tooltip>
@@ -457,6 +507,7 @@ export default function MessageComposer({
               icon={<SendOutlined />}
               loading={sending}
               disabled={disabled || uploading || (!text.trim() && attachments.length === 0)}
+              className="shrink-0"
               onClick={handleSubmit}
             />
           )}
