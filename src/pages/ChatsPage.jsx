@@ -488,7 +488,17 @@ export default function ChatsPage() {
                   loadOlder()
                 }
               }}
-              className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-1"
+              style={
+                selectedChat.backgroundURL
+                  ? {
+                      backgroundImage: `linear-gradient(to bottom, rgba(15, 16, 20, 0.45), rgba(15, 16, 20, 0.55)), url(${selectedChat.backgroundURL})`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                      backgroundAttachment: 'local',
+                    }
+                  : undefined
+              }
+              className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-3 space-y-1 transition-all"
             >
               {hasMore && (
                 <div className="py-2 text-center">

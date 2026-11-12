@@ -22,6 +22,7 @@ import {
   FlagOutlined,
   LogoutOutlined,
   MoreOutlined,
+  PictureOutlined,
   PlusOutlined,
   ReloadOutlined,
   StopOutlined,
@@ -35,6 +36,7 @@ import {
   setGroupMemberRole,
   toggleChatFlag,
   toggleGroupInvite,
+  updateChatBackground,
   updateGroupDetails,
 } from '@/features/chats/api/chatsApi'
 import { blockUser, unblockUser } from '@/features/contacts/api/contactsApi'
@@ -59,8 +61,10 @@ export default function ChatInfoDrawer({
   const [groupDesc, setGroupDesc] = useState('')
   const [addingIds, setAddingIds] = useState([])
   const [busy, setBusy] = useState(false)
+  const [bgUploading, setBgUploading] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
   const avatarInputRef = useRef(null)
+  const bgInputRef = useRef(null)
 
   if (!chat || !currentUser) return null
 
@@ -125,6 +129,38 @@ export default function ChatInfoDrawer({
       message.error(getErrorMessage(err))
     } finally {
       setBusy(false)
+    }
+  }
+
+  const handleBackgroundUpload = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!file.type?.startsWith('image/')) {
+      message.warning('Please select an image file')
+      return
+    }
+    setBgUploading(true)
+    try {
+      const res = await uploadImage(file, { folder: 'chatly/backgrounds' })
+      await updateChatBackground(chat.id, res.url, currentUser)
+      message.success('Chat background updated!')
+    } catch (err) {
+      message.error(getErrorMessage(err))
+    } finally {
+      setBgUploading(false)
+    }
+  }
+
+  const handleRemoveBackground = async () => {
+    setBgUploading(true)
+    try {
+      await updateChatBackground(chat.id, null, currentUser)
+      message.success('Chat background removed')
+    } catch (err) {
+      message.error(getErrorMessage(err))
+    } finally {
+      setBgUploading(false)
     }
   }
 
@@ -286,6 +322,55 @@ export default function ChatInfoDrawer({
               size="small"
               checked={isArchived}
               onChange={(v) => toggleChatFlag(chat.id, currentUser.uid, 'archivedBy', v)}
+            />
+          </div>
+        </div>
+
+        {/* Custom Chat Background (Image Only) */}
+        <div className="space-y-2.5 border-t border-[var(--color-border)] pt-4">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+              Chat Background
+            </span>
+          </div>
+
+          {chat.backgroundURL && (
+            <div className="relative overflow-hidden rounded-lg border border-[var(--color-border)]">
+              <img
+                src={chat.backgroundURL}
+                alt="Chat background"
+                className="h-28 w-full object-cover"
+              />
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <Button
+              size="small"
+              icon={<PictureOutlined />}
+              loading={bgUploading}
+              onClick={() => bgInputRef.current?.click()}
+              className="flex-1"
+            >
+              {chat.backgroundURL ? 'Change image' : 'Upload background image'}
+            </Button>
+            {chat.backgroundURL && (
+              <Button
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                loading={bgUploading}
+                onClick={handleRemoveBackground}
+              >
+                Remove
+              </Button>
+            )}
+            <input
+              ref={bgInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleBackgroundUpload}
             />
           </div>
         </div>

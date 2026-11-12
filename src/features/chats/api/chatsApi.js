@@ -326,6 +326,32 @@ export async function toggleChatFlag(chatId, uid, field, active) {
   })
 }
 
+export async function updateChatBackground(chatId, backgroundURL, actorProfile) {
+  if (!chatId) return
+  await updateDoc(doc(db, 'chats', chatId), {
+    backgroundURL: backgroundURL || null,
+    updatedAt: serverTimestamp(),
+  })
+
+  if (actorProfile?.uid) {
+    const actionText = backgroundURL
+      ? `${actorProfile.displayName} changed the chat background`
+      : `${actorProfile.displayName} removed the chat background`
+    await addDoc(collection(db, 'chats', chatId, 'messages'), {
+      chatId,
+      senderId: actorProfile.uid,
+      senderName: actorProfile.displayName,
+      type: 'system',
+      text: actionText,
+      attachments: [],
+      reactions: {},
+      deletedForAll: false,
+      deletedFor: [],
+      createdAt: serverTimestamp(),
+    })
+  }
+}
+
 /**
  * Fetch older messages for infinite scroll pagination.
  */
