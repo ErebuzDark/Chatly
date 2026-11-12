@@ -54,9 +54,18 @@ export default function EditProfileModal({ open, onClose, profile }) {
         folder: isAvatar ? 'chatly/avatars' : 'chatly/covers',
         onProgress: setUploadPct,
       })
-      if (isAvatar) setPhotoURL(res.url)
-      else setCoverURL(res.url)
-      message.success(`${isAvatar ? 'Avatar' : 'Cover photo'} uploaded`)
+      if (isAvatar) {
+        setPhotoURL(res.url)
+        if (profile?.uid) {
+          await updateUserProfile(profile.uid, { photoURL: res.url })
+        }
+      } else {
+        setCoverURL(res.url)
+        if (profile?.uid) {
+          await updateUserProfile(profile.uid, { coverURL: res.url })
+        }
+      }
+      message.success(`${isAvatar ? 'Avatar' : 'Cover photo'} updated`)
     } catch (err) {
       message.error(getErrorMessage(err))
     } finally {

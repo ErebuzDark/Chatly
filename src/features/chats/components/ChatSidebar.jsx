@@ -12,27 +12,29 @@ import {
   UserAddOutlined,
 } from '@ant-design/icons'
 import { toggleChatFlag } from '@/features/chats/api/chatsApi'
-import { cn, formatRelativeTime, getInitials, toDate } from '@/lib/utils'
+import { cn, formatRelativeTime, getInitials, isUserOnline, toDate } from '@/lib/utils'
 
 export function getChatDisplay(chat, currentUid) {
   if (!chat) return { title: 'Chat', avatar: null, otherUid: null, username: '' }
   if (chat.type === 'group') {
     return {
       title: chat.title || 'Group Chat',
-      avatar: chat.avatarURL || null,
+      avatar: chat.avatarURL || undefined,
       otherUid: null,
       username: '',
       isGroup: true,
+      online: false,
     }
   }
   const otherUid = (chat.memberIds || []).find((id) => id !== currentUid) || currentUid
   const info = chat.memberInfo?.[otherUid] || {}
   return {
     title: info.displayName || info.username || 'User',
-    avatar: info.photoURL || null,
+    avatar: info.photoURL || undefined,
     otherUid,
     username: info.username || '',
     isGroup: false,
+    online: isUserOnline(info, true),
   }
 }
 
@@ -171,7 +173,7 @@ export default function ChatSidebar({
           </div>
         ) : (
           filteredChats.map((chat) => {
-            const { title, avatar, isGroup } = getChatDisplay(chat, currentUid)
+            const { title, avatar, isGroup, online } = getChatDisplay(chat, currentUid)
             const unread = chat.unreadCounts?.[currentUid] || 0
             const isPinned = Array.isArray(chat.pinnedBy) && chat.pinnedBy.includes(currentUid)
             const isMuted = Array.isArray(chat.mutedBy) && chat.mutedBy.includes(currentUid)
@@ -236,6 +238,7 @@ export default function ChatSidebar({
               >
                 <div className="relative shrink-0">
                   <Avatar
+                    key={avatar || 'no-avatar'}
                     size={46}
                     src={avatar}
                     icon={isGroup && !avatar ? <TeamOutlined /> : undefined}
@@ -243,6 +246,9 @@ export default function ChatSidebar({
                   >
                     {!isGroup && getInitials(title)}
                   </Avatar>
+                  {!isGroup && online && (
+                    <span className="absolute right-0 bottom-0 h-3 w-3 rounded-full border-2 border-[var(--color-surface)] bg-emerald-500" />
+                  )}
                 </div>
 
                 <div className="min-w-0 flex-1">

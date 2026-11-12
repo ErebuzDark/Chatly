@@ -29,6 +29,7 @@ import {
   getInitials,
   toDate,
 } from '@/lib/utils'
+import LinkEmbedPreview from '@/features/chats/components/LinkEmbedPreview'
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥']
 
@@ -291,8 +292,8 @@ export default function MessageBubble({
   const isDeleted = !!message.deletedForAll
   const urls = !isDeleted ? extractUrls(message.text) : []
   const liveMember = chat?.memberInfo?.[message.senderId]
-  const senderAvatar = liveMember?.photoURL ?? message.senderPhoto
-  const senderDisplayName = liveMember?.displayName || message.senderName
+  const senderAvatar = liveMember?.photoURL || message.senderPhoto || undefined
+  const senderDisplayName = liveMember?.displayName || message.senderName || 'User'
 
   // Compute Sent / Delivered / Seen status for own messages
   let receiptStatus = 'sent'
@@ -377,7 +378,12 @@ export default function MessageBubble({
       )}
     >
       {!isOwn && (
-        <Avatar size={30} src={senderAvatar} className="shrink-0 bg-primary text-xs">
+        <Avatar
+          key={senderAvatar || 'no-avatar'}
+          size={30}
+          src={senderAvatar}
+          className="shrink-0 bg-primary text-xs"
+        >
           {getInitials(senderDisplayName)}
         </Avatar>
       )}
@@ -521,8 +527,8 @@ export default function MessageBubble({
                   )
                 )}
 
-                {/* Link preview for first detected URL */}
-                {urls.length > 0 && <LinkPreviewCard url={urls[0]} isOwn={isOwn} />}
+                {/* Rich Link / Iframe Embed Preview for first detected URL */}
+                {urls.length > 0 && <LinkEmbedPreview url={urls[0]} isOwn={isOwn} />}
               </>
             )}
 

@@ -399,8 +399,9 @@ export default function ChatsPage() {
                   onClick={() => setInfoOpen(true)}
                 >
                   <Avatar
+                    key={avatar || 'no-avatar'}
                     size={40}
-                    src={avatar}
+                    src={avatar || undefined}
                     icon={isGroup && !avatar ? <TeamOutlined /> : undefined}
                     className="bg-primary font-semibold"
                   >
