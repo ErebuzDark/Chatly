@@ -42,6 +42,7 @@ import { getErrorMessage } from '@/lib/firebaseErrors'
 
 const NOTE_EMOJIS = ['💭', '☕', '🔥', '💻', '🎧', '🎮', '📚', '😴', '✈️', '🥳', '🍕', '💪']
 const STORY_REACTIONS = ['❤️', '🔥', '😂', '😮', '😢', '👏']
+const STORY_DURATION_MS = 6000
 
 export default function StoriesBar({ onSelectChat }) {
   const { profile } = useAuth()
@@ -69,6 +70,7 @@ export default function StoriesBar({ onSelectChat }) {
   // Story Viewer Modal state
   const [viewerOwner, setViewerOwner] = useState(null) // user object
   const [slideIdx, setSlideIdx] = useState(0)
+  const [slideProgress, setSlideProgress] = useState(0)
   const [replyText, setReplyText] = useState('')
   const [sendingReply, setSendingReply] = useState(false)
 
@@ -138,18 +140,38 @@ export default function StoriesBar({ onSelectChat }) {
     }
   }, [activeViewerData, currentStory, profile])
 
-  // Auto-advance story slides every 6 seconds (unless typing a reply)
+  // Reset progress whenever switching to a different story slide
+  useEffect(() => {
+    setSlideProgress(0)
+  }, [activeViewerData?.uid, currentStory?.id, slideIdx])
+
+  // Animate progress bar & auto-advance story slides every 6 seconds (pauses while typing a reply)
   useEffect(() => {
     if (!activeViewerData || !currentStory || replyText.trim()) return undefined
-    const timer = setTimeout(() => {
-      if (slideIdx < activeViewerData.stories.length - 1) {
-        setSlideIdx((i) => i + 1)
-      } else {
-        setViewerOwner(null)
-        setSlideIdx(0)
-      }
-    }, 6000)
-    return () => clearTimeout(timer)
+
+    let lastTick = performance.now()
+    const interval = setInterval(() => {
+      const now = performance.now()
+      const deltaPct = ((now - lastTick) / STORY_DURATION_MS) * 100
+      lastTick = now
+
+      setSlideProgress((prev) => {
+        const next = prev + deltaPct
+        if (next >= 100) {
+          clearInterval(interval)
+          if (slideIdx < activeViewerData.stories.length - 1) {
+            setSlideIdx((i) => i + 1)
+          } else {
+            setViewerOwner(null)
+            setSlideIdx(0)
+          }
+          return 100
+        }
+        return next
+      })
+    }, 30)
+
+    return () => clearInterval(interval)
   }, [activeViewerData, currentStory, slideIdx, replyText])
 
   const openNoteModal = () => {
@@ -595,19 +617,21 @@ export default function StoriesBar({ onSelectChat }) {
             {/* Top Progress Bars & Author Bar */}
             <div className="relative z-20 space-y-2.5 bg-gradient-to-b from-black/75 to-transparent p-3">
               <div className="flex gap-1">
-                {activeViewerData.stories.map((st, idx) => (
-                  <div
-                    key={st.id}
-                    className="h-1 flex-1 overflow-hidden rounded-full bg-white/30"
-                  >
+                {activeViewerData.stories.map((st, idx) => {
+                  const widthPct =
+                    idx < slideIdx ? 100 : idx === slideIdx ? slideProgress : 0
+                  return (
                     <div
-                      className={cn(
-                        'h-full bg-white transition-all duration-300',
-                        idx < slideIdx ? 'w-full' : idx === slideIdx ? 'w-full' : 'w-0',
-                      )}
-                    />
-                  </div>
-                ))}
+                      key={st.id}
+                      className="h-1 flex-1 overflow-hidden rounded-full bg-white/30"
+                    >
+                      <div
+                        style={{ width: `${widthPct}%` }}
+                        className="h-full bg-white transition-[width] duration-75 ease-linear"
+                      />
+                    </div>
+                  )
+                })}
               </div>
 
               <div className="flex items-center justify-between">
