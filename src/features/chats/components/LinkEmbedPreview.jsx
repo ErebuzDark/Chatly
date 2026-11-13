@@ -1,13 +1,22 @@
 import { useEffect, useState } from 'react'
-import { Button, Modal, Spin } from 'antd'
+import { useNavigate } from 'react-router-dom'
+import { App, Avatar, Button, Modal, Spin } from 'antd'
 import {
   CompressOutlined,
   ExpandOutlined,
   EyeOutlined,
   GlobalOutlined,
   LinkOutlined,
+  TeamOutlined,
 } from '@ant-design/icons'
+import { useAuth } from '@/features/auth/hooks/useAuth'
+import { useChats } from '@/features/chats/hooks/useChats'
+import {
+  findGroupByInviteCode,
+  joinGroupByInviteCode,
+} from '@/features/chats/api/chatsApi'
 import { cn } from '@/lib/utils'
+import { getErrorMessage } from '@/lib/firebaseErrors'
 
 // In-memory cache so we only fetch OpenGraph metadata once per URL
 const metadataCache = new Map()
@@ -78,7 +87,16 @@ function getNativeEmbed(rawUrl) {
       }
     }
 
-    // 5. Direct image / video file links
+    // 5. Internal Group Invite links (/join/:inviteCode)
+    const joinMatch = u.pathname.match(/^\/join\/([^/?#]+)/i)
+    if (joinMatch?.[1]) {
+      return {
+        kind: 'group-invite',
+        inviteCode: decodeURIComponent(joinMatch[1]),
+      }
+    }
+
+    // 6. Direct image / video file links
     if (/\.(gif|jpe?g|png|webp|avif)$/i.test(u.pathname)) {
       return { kind: 'image', mediaUrl: rawUrl }
     }
@@ -89,6 +107,133 @@ function getNativeEmbed(rawUrl) {
     // ignore invalid URL
   }
   return null
+}
+
+function GroupInviteEmbedCard({ inviteCode, isOwn }) {
+  const navigate = useNavigate()
+  const { profile } = useAuth()
+  const { chats, selectChat } = useChats()
+  const { message } = App.useApp()
+  const [group, setGroup] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [joining, setJoining] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    const load = async () => {
+      setLoading(true)
+      try {
+        const codePart = (
+          inviteCode.includes('--') ? inviteCode.split('--').pop() : inviteCode
+        )
+          .trim()
+          .toLowerCase()
+        const localMatch = chats.find(
+          (c) =>
+            c.type === 'group' &&
+            c.inviteEnabled !== false &&
+            (c.inviteCode || '').toLowerCase() === codePart,
+        )
+        if (localMatch) {
+          if (active) {
+            setGroup(localMatch)
+            setLoading(false)
+          }
+          return
+        }
+        const found = await findGroupByInviteCode(inviteCode)
+        if (active) setGroup(found)
+      } catch {
+        if (active) setGroup(null)
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      active = false
+    }
+  }, [inviteCode, chats])
+
+  const alreadyMember = Boolean(
+    profile?.uid && (group?.memberIds || []).includes(profile.uid),
+  )
+
+  const handleAction = async (e) => {
+    e.stopPropagation()
+    if (!group) {
+      navigate(`/join/${encodeURIComponent(inviteCode)}`)
+      return
+    }
+    if (alreadyMember) {
+      selectChat(group.id)
+      navigate(`/chats?chatId=${group.id}`)
+      return
+    }
+    if (!profile) return
+    setJoining(true)
+    try {
+      const chatId = await joinGroupByInviteCode(inviteCode, profile)
+      message.success(`Joined ${group.title || 'group'}!`)
+      selectChat(chatId)
+      navigate(`/chats?chatId=${chatId}`)
+    } catch (err) {
+      message.error(getErrorMessage(err))
+    } finally {
+      setJoining(false)
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        'mt-2 w-[min(235px,68vw)] sm:w-72 max-w-full overflow-hidden rounded-xl border p-3 text-xs',
+        isOwn
+          ? 'border-white/25 bg-black/20 text-white'
+          : 'border-[var(--color-border)] bg-[var(--color-surface)] text-foreground',
+      )}
+    >
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider opacity-75">
+        Group Chat Invite
+      </div>
+      {loading ? (
+        <div className="py-2 text-center">
+          <Spin size="small" />
+        </div>
+      ) : group ? (
+        <div className="space-y-2.5">
+          <div className="flex items-center gap-2.5">
+            <Avatar
+              size={40}
+              src={group.avatarURL || undefined}
+              icon={!group.avatarURL ? <TeamOutlined /> : undefined}
+              className="shrink-0 bg-primary font-semibold"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-bold">{group.title}</div>
+              <div className="text-[11px] opacity-80">
+                {(group.memberIds || []).length}{' '}
+                {(group.memberIds || []).length === 1 ? 'member' : 'members'}
+              </div>
+            </div>
+          </div>
+          <Button
+            size="small"
+            type={isOwn ? 'default' : 'primary'}
+            block
+            loading={joining}
+            onClick={handleAction}
+          >
+            {alreadyMember ? 'Open Group' : 'Join Group'}
+          </Button>
+        </div>
+      ) : (
+        <div className="opacity-80">
+          This group invite link is invalid or has been disabled.
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function LinkEmbedPreview({ url, isOwn }) {
@@ -107,7 +252,11 @@ export default function LinkEmbedPreview({ url, isOwn }) {
   }
 
   useEffect(() => {
-    if (nativeEmbed?.kind === 'image' || nativeEmbed?.kind === 'video') {
+    if (
+      nativeEmbed?.kind === 'image' ||
+      nativeEmbed?.kind === 'video' ||
+      nativeEmbed?.kind === 'group-invite'
+    ) {
       setLoadingMeta(false)
       return undefined
     }
@@ -153,6 +302,11 @@ export default function LinkEmbedPreview({ url, isOwn }) {
       active = false
     }
   }, [url, hostname, nativeEmbed?.kind])
+
+  // Render internal Group Invite card
+  if (nativeEmbed?.kind === 'group-invite') {
+    return <GroupInviteEmbedCard inviteCode={nativeEmbed.inviteCode} isOwn={isOwn} />
+  }
 
   // Render direct image or video URL
   if (nativeEmbed?.kind === 'image') {

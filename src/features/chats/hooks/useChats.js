@@ -5,7 +5,8 @@ import { db } from '@/lib/firebase'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 import { markChatDelivered } from '@/features/chats/api/chatsApi'
 import { playNotificationSound } from '@/services/sound'
-import { APP_NAME, DEFAULT_SETTINGS } from '@/lib/utils'
+import { getSteadyTabTitle, updateTabFaviconBadge } from '@/services/tabBadge'
+import { DEFAULT_SETTINGS } from '@/lib/utils'
 
 const ChatsContext = createContext(null)
 
@@ -19,6 +20,7 @@ export function ChatsProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [activeChatId, setActiveChatId] = useState(null)
   const [openCallChatId, setOpenCallChatId] = useState(null)
+  const [tabAlertText, setTabAlertText] = useState(null)
 
   const prevLastMsgIdsRef = useRef(new Map())
   const initialLoadRef = useRef(true)
@@ -85,6 +87,13 @@ export function ChatsProvider({ children }) {
                   ? chat.title || 'Group chat'
                   : lastMsg.senderName || 'New message'
 
+              const snippet =
+                chat.type === 'group'
+                  ? `${lastMsg.senderName}: ${lastMsg.text}`
+                  : `${lastMsg.senderName || chatTitle}: ${lastMsg.text}`
+
+              setTabAlertText(snippet)
+
               if (settings.inAppNotifications !== false) {
                 notification.info({
                   message: chatTitle,
@@ -98,15 +107,30 @@ export function ChatsProvider({ children }) {
               }
 
               if (
-                settings.desktopNotifications &&
+                settings.desktopNotifications !== false &&
                 typeof Notification !== 'undefined' &&
-                Notification.permission === 'granted' &&
                 document.visibilityState !== 'visible'
               ) {
-                try {
-                  new Notification(chatTitle, { body: lastMsg.text })
-                } catch {
-                  // ignore
+                if (Notification.permission === 'granted') {
+                  try {
+                    const n = new Notification(chatTitle, {
+                      body:
+                        chat.type === 'group'
+                          ? `${lastMsg.senderName}: ${lastMsg.text}`
+                          : lastMsg.text,
+                      icon: '/favicon.svg',
+                      tag: `chatly-${chat.id}`,
+                    })
+                    n.onclick = () => {
+                      window.focus()
+                      setActiveChatId(chat.id)
+                      n.close()
+                    }
+                  } catch {
+                    // ignore
+                  }
+                } else if (Notification.permission === 'default') {
+                  Notification.requestPermission().catch(() => {})
                 }
               }
             }
@@ -206,10 +230,57 @@ export function ChatsProvider({ children }) {
     }, 0)
   }, [chats, uid])
 
-  // Update browser tab title with unread count
+  // Clear flashing tab alert when the user focuses/returns to the browser tab or reads all messages
   useEffect(() => {
-    document.title = totalUnread > 0 ? `(${totalUnread}) ${APP_NAME}` : APP_NAME
+    if (totalUnread === 0) {
+      setTabAlertText(null)
+    }
   }, [totalUnread])
+
+  useEffect(() => {
+    const clearAlertOnFocus = () => {
+      if (document.visibilityState === 'visible') {
+        setTabAlertText(null)
+      }
+    }
+    window.addEventListener('focus', clearAlertOnFocus)
+    document.addEventListener('visibilitychange', clearAlertOnFocus)
+    return () => {
+      window.removeEventListener('focus', clearAlertOnFocus)
+      document.removeEventListener('visibilitychange', clearAlertOnFocus)
+    }
+  }, [])
+
+  // Update Chrome tab favicon number chip & tab title (with alternating ticker on new message)
+  useEffect(() => {
+    updateTabFaviconBadge(totalUnread)
+    const steadyTitle = getSteadyTabTitle(totalUnread)
+
+    if (!tabAlertText && totalUnread === 0) {
+      document.title = steadyTitle
+      return undefined
+    }
+
+    if (tabAlertText && (document.visibilityState !== 'visible' || totalUnread > 0)) {
+      let toggle = false
+      const badgeCount = Math.max(1, totalUnread)
+      const alertTitle = `💬 (${badgeCount}) ${tabAlertText}`
+      document.title = alertTitle
+
+      const timer = setInterval(() => {
+        toggle = !toggle
+        document.title = toggle ? getSteadyTabTitle(badgeCount) : alertTitle
+      }, 1200)
+
+      return () => {
+        clearInterval(timer)
+        document.title = getSteadyTabTitle(totalUnread)
+      }
+    }
+
+    document.title = steadyTitle
+    return undefined
+  }, [totalUnread, tabAlertText])
 
   const value = useMemo(
     () => ({

@@ -6,16 +6,18 @@ import {
   CloseOutlined,
   DeleteOutlined,
   EditOutlined,
+  FilePdfOutlined,
   PaperClipOutlined,
   PictureOutlined,
   PlusOutlined,
   SendOutlined,
   SmileOutlined,
   UndoOutlined,
+  VideoCameraOutlined,
 } from '@ant-design/icons'
 import { uploadAttachment, uploadVoiceNote } from '@/services/cloudinary'
 import { setTypingStatus } from '@/features/chats/api/chatsApi'
-import { formatDuration } from '@/lib/utils'
+import { formatBytes, formatDuration } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/firebaseErrors'
 
 const EMOJI_PALETTE = [
@@ -97,10 +99,8 @@ export default function MessageComposer({
     if (!editingMessage) triggerTyping(val)
   }
 
-  const handleFilesSelected = async (e) => {
-    const files = Array.from(e.target.files || [])
-    e.target.value = ''
-    if (!files.length) return
+  const uploadFilesList = async (files) => {
+    if (!files.length || disabled || uploading) return
 
     setUploading(true)
     setUploadPct(0)
@@ -109,14 +109,29 @@ export default function MessageComposer({
       const uploadedList = []
       for (const file of files.slice(0, 4)) {
         const res = await uploadAttachment(file, { onProgress: setUploadPct })
-        uploadedList.push({
+        const mime = (file.type || '').toLowerCase()
+        const ext = (file.name || '').split('.').pop()?.toLowerCase() || ''
+
+        let attType = 'file'
+        if (mime.startsWith('image/')) attType = 'image'
+        else if (mime.startsWith('video/')) attType = 'video'
+        else if (mime.startsWith('audio/')) attType = 'audio'
+
+        const item = {
           url: res.url,
-          type: file.type?.startsWith('image/') ? 'image' : 'file',
-          name: file.name,
+          type: attType,
+          mimeType: file.type || null,
+          format: res.format || ext || null,
+          name: file.name || res.originalFilename || 'attachment',
           size: file.size || res.bytes || 0,
           width: res.width || null,
           height: res.height || null,
-        })
+          duration: res.duration || null,
+        }
+        if (res.dataUrl) {
+          item.dataUrl = res.dataUrl
+        }
+        uploadedList.push(item)
       }
       setAttachments((prev) => [...prev, ...uploadedList])
     } catch (err) {
@@ -124,6 +139,35 @@ export default function MessageComposer({
     } finally {
       setUploading(false)
       setUploadPct(0)
+    }
+  }
+
+  const handleFilesSelected = async (e) => {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    await uploadFilesList(files)
+  }
+
+  const handlePaste = async (e) => {
+    if (editingMessage || disabled || uploading) return
+    const items = Array.from(e.clipboardData?.items || [])
+    const pastedFiles = items
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile())
+      .filter(Boolean)
+
+    if (pastedFiles.length > 0) {
+      e.preventDefault()
+      await uploadFilesList(pastedFiles)
+    }
+  }
+
+  const handleDrop = async (e) => {
+    e.preventDefault()
+    if (editingMessage || disabled || uploading) return
+    const droppedFiles = Array.from(e.dataTransfer?.files || [])
+    if (droppedFiles.length > 0) {
+      await uploadFilesList(droppedFiles)
     }
   }
 
@@ -232,8 +276,10 @@ export default function MessageComposer({
     try {
       let msgType = 'text'
       if (attachments.length > 0) {
-        const allImages = attachments.every((a) => a.type === 'image')
-        msgType = allImages ? 'image' : 'file'
+        if (attachments.every((a) => a.type === 'image')) msgType = 'image'
+        else if (attachments.every((a) => a.type === 'video')) msgType = 'video'
+        else if (attachments.every((a) => a.type === 'audio')) msgType = 'voice'
+        else msgType = 'file'
       }
 
       await onSend?.({
@@ -243,6 +289,7 @@ export default function MessageComposer({
       })
       setText('')
       setAttachments([])
+      setTypingStatus(chatId, currentUid, false)
     } catch (err) {
       message.error(getErrorMessage(err))
     } finally {
@@ -251,6 +298,15 @@ export default function MessageComposer({
   }
 
   const handleKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      if (editingMessage) {
+        onClearEdit?.()
+        setText('')
+      } else if (replyTo) {
+        onClearReply?.()
+      }
+      return
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSubmit()
@@ -258,7 +314,11 @@ export default function MessageComposer({
   }
 
   return (
-    <div className="border-t border-[var(--color-border)] bg-[var(--color-surface-raised)] px-2 py-2 sm:p-3 space-y-2">
+    <div
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={handleDrop}
+      className="border-t border-[var(--color-border)] bg-[var(--color-surface-raised)] px-2 py-2 sm:p-3 space-y-2"
+    >
       {/* Reply or Edit Banner */}
       {(replyTo || editingMessage) && (
         <div className="flex items-center justify-between gap-2 rounded-lg bg-primary/15 px-3 py-1.5 text-xs">
@@ -297,32 +357,47 @@ export default function MessageComposer({
       {/* Pending Attachments Preview */}
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 pt-1">
-          {attachments.map((att, idx) => (
-            <div
-              key={idx}
-              className="relative flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 pr-7 text-xs"
-            >
-              {att.type === 'image' ? (
-                <img
-                  src={att.url}
-                  alt={att.name}
-                  className="h-10 w-10 rounded object-cover"
-                />
-              ) : (
-                <PaperClipOutlined className="text-base text-primary" />
-              )}
-              <span className="max-w-36 truncate">{att.name}</span>
-              <button
-                type="button"
-                onClick={() =>
-                  setAttachments((prev) => prev.filter((_, i) => i !== idx))
-                }
-                className="absolute right-1.5 top-1.5 cursor-pointer border-0 bg-transparent p-0.5 text-muted hover:text-foreground"
+          {attachments.map((att, idx) => {
+            const isPdf =
+              att.format === 'pdf' ||
+              att.mimeType === 'application/pdf' ||
+              /\.pdf$/i.test(att.name || '')
+            return (
+              <div
+                key={idx}
+                className="relative flex items-center gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-1.5 pr-7 text-xs"
               >
-                <CloseOutlined />
-              </button>
-            </div>
-          ))}
+                {att.type === 'image' ? (
+                  <img
+                    src={att.url}
+                    alt={att.name}
+                    className="h-10 w-10 rounded object-cover"
+                  />
+                ) : att.type === 'video' ? (
+                  <VideoCameraOutlined className="text-base text-primary" />
+                ) : isPdf ? (
+                  <FilePdfOutlined className="text-base text-red-400" />
+                ) : (
+                  <PaperClipOutlined className="text-base text-primary" />
+                )}
+                <div className="min-w-0">
+                  <div className="max-w-36 truncate font-medium">{att.name}</div>
+                  {att.size > 0 && (
+                    <div className="text-[10px] text-muted">{formatBytes(att.size)}</div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAttachments((prev) => prev.filter((_, i) => i !== idx))
+                  }
+                  className="absolute right-1.5 top-1.5 cursor-pointer border-0 bg-transparent p-0.5 text-muted hover:text-foreground"
+                >
+                  <CloseOutlined />
+                </button>
+              </div>
+            )
+          })}
         </div>
       )}
 
@@ -477,6 +552,7 @@ export default function MessageComposer({
             value={text}
             onChange={handleTextChange}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             disabled={disabled}
             autoSize={{ minRows: 1, maxRows: 5 }}
             placeholder={

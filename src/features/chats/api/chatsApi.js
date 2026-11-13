@@ -214,6 +214,7 @@ export async function sendMessage({
   let previewText = cleanText
   if (!previewText) {
     if (type === 'image') previewText = '📷 Photo'
+    else if (type === 'video') previewText = '🎬 Video'
     else if (type === 'voice') previewText = '🎤 Voice message'
     else if (type === 'file') previewText = `📎 ${attachments[0]?.name || 'File'}`
   }
@@ -566,6 +567,11 @@ export async function removeGroupMember(chatId, targetProfile, actorProfile) {
   })
 }
 
+export function buildGroupInviteToken(chat) {
+  if (!chat?.id || !chat?.inviteCode) return chat?.inviteCode || ''
+  return `${chat.id}--${chat.inviteCode}`
+}
+
 export async function regenerateGroupInvite(chatId, inviteEnabled = true) {
   const inviteCode = randomInviteCode(10)
   await updateDoc(doc(db, 'chats', chatId), {
@@ -583,19 +589,79 @@ export async function toggleGroupInvite(chatId, inviteEnabled) {
   })
 }
 
-export async function findGroupByInviteCode(inviteCode) {
-  const clean = (inviteCode || '').trim().toLowerCase()
+export async function findGroupByInviteCode(rawInviteParam) {
+  const raw = decodeURIComponent((rawInviteParam || '').trim())
+  if (!raw) return null
+
+  // 1. Direct document lookup when token is formatted as "<chatId>--<inviteCode>"
+  //    This uses a single-doc `getDoc` so it never requires a composite index
+  //    and always passes Firestore's `resource.data.type == 'group' && resource.data.inviteEnabled == true` rule.
+  if (raw.includes('--')) {
+    const sepIdx = raw.lastIndexOf('--')
+    const chatId = raw.slice(0, sepIdx).trim()
+    const code = raw.slice(sepIdx + 2).trim().toLowerCase()
+    if (chatId && code) {
+      try {
+        const snap = await getDoc(doc(db, 'chats', chatId))
+        if (snap.exists()) {
+          const data = snap.data()
+          if (
+            data.type === 'group' &&
+            data.inviteEnabled === true &&
+            (data.inviteCode || '').toLowerCase() === code
+          ) {
+            return { id: snap.id, ...data }
+          }
+        }
+      } catch {
+        // Fall through to query lookup
+      }
+    }
+  }
+
+  const clean = (raw.includes('--') ? raw.split('--').pop() : raw)
+    .trim()
+    .toLowerCase()
   if (!clean) return null
-  const q = query(
-    collection(db, 'chats'),
-    where('inviteCode', '==', clean),
-    where('inviteEnabled', '==', true),
-    limit(1),
-  )
-  const snap = await getDocs(q)
-  if (snap.empty) return null
-  const d = snap.docs[0]
-  return { id: d.id, ...d.data() }
+
+  // 2. Query lookup including `where('type', '==', 'group')` so Firestore's
+  //    security rule evaluator (`resource.data.type == 'group' && resource.data.inviteEnabled == true`)
+  //    can statically verify the query for non-members.
+  try {
+    const qWithType = query(
+      collection(db, 'chats'),
+      where('type', '==', 'group'),
+      where('inviteEnabled', '==', true),
+      where('inviteCode', '==', clean),
+      limit(1),
+    )
+    const snap = await getDocs(qWithType)
+    if (!snap.empty) {
+      const d = snap.docs[0]
+      return { id: d.id, ...d.data() }
+    }
+  } catch {
+    // Fall through to 2-field query if composite index isn't built yet
+  }
+
+  // 3. Fallback 2-field query (works when firestore.rules allows `resource.data.inviteEnabled == true`)
+  try {
+    const qSimple = query(
+      collection(db, 'chats'),
+      where('inviteCode', '==', clean),
+      where('inviteEnabled', '==', true),
+      limit(1),
+    )
+    const snap = await getDocs(qSimple)
+    if (!snap.empty) {
+      const d = snap.docs[0]
+      return { id: d.id, ...d.data() }
+    }
+  } catch {
+    // ignore
+  }
+
+  return null
 }
 
 export async function joinGroupByInviteCode(inviteCode, userProfile) {

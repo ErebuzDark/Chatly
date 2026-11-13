@@ -20,7 +20,10 @@ import {
   CopyOutlined,
   CrownOutlined,
   DeleteOutlined,
+  DownloadOutlined,
   EditOutlined,
+  FileOutlined,
+  FilePdfOutlined,
   FlagOutlined,
   LogoutOutlined,
   MoreOutlined,
@@ -34,6 +37,7 @@ import {
 } from '@ant-design/icons'
 import {
   addMembersToGroup,
+  buildGroupInviteToken,
   regenerateGroupInvite,
   removeGroupMember,
   setGroupMemberRole,
@@ -47,9 +51,9 @@ import {
   searchUsersByPrefix,
   unblockUser,
 } from '@/features/contacts/api/contactsApi'
-import { uploadImage } from '@/services/cloudinary'
+import { getCloudinaryDownloadUrl, uploadImage } from '@/services/cloudinary'
 import { getChatDisplay } from '@/features/chats/components/ChatSidebar'
-import { getInitials } from '@/lib/utils'
+import { formatBytes, getInitials } from '@/lib/utils'
 import { getErrorMessage } from '@/lib/firebaseErrors'
 import ReportUserModal from '@/features/contacts/components/ReportUserModal'
 
@@ -135,10 +139,22 @@ export default function ChatInfoDrawer({
       }
     : null
 
-  // Shared images from currently loaded messages
+  // Shared images and files from currently loaded messages
   const sharedImages = messages
     .filter((m) => !m.deletedForAll)
     .flatMap((m) => (m.attachments || []).filter((a) => a.type?.startsWith('image')))
+
+  const sharedFiles = messages
+    .filter((m) => !m.deletedForAll)
+    .flatMap((m) =>
+      (m.attachments || []).filter(
+        (a) =>
+          !a.type?.startsWith('image') &&
+          !a.type?.startsWith('video') &&
+          a.type !== 'voice' &&
+          !a.type?.startsWith('audio'),
+      ),
+    )
 
   const startEditGroup = () => {
     setGroupTitle(chat.title || '')
@@ -211,10 +227,12 @@ export default function ChatInfoDrawer({
     }
   }
 
+  const inviteToken = buildGroupInviteToken(chat)
+  const inviteUrl = inviteToken ? `${window.location.origin}/join/${inviteToken}` : ''
+
   const copyInviteLink = () => {
-    if (!chat.inviteCode) return
-    const link = `${window.location.origin}/join/${chat.inviteCode}`
-    navigator.clipboard.writeText(link)
+    if (!inviteUrl) return
+    navigator.clipboard.writeText(inviteUrl)
     message.success('Invite link copied!')
   }
 
@@ -455,12 +473,12 @@ export default function ChatInfoDrawer({
                 )}
               </div>
 
-              {chat.inviteEnabled !== false && chat.inviteCode ? (
+              {chat.inviteEnabled !== false && inviteUrl ? (
                 <div className="flex items-center gap-1.5">
                   <Input
                     size="small"
                     readOnly
-                    value={`${window.location.origin}/join/${chat.inviteCode}`}
+                    value={inviteUrl}
                   />
                   <Button
                     size="small"
@@ -476,6 +494,14 @@ export default function ChatInfoDrawer({
                     />
                   )}
                 </div>
+              ) : chat.inviteEnabled !== false && !chat.inviteCode ? (
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  onClick={() => regenerateGroupInvite(chat.id, true)}
+                >
+                  Generate invite link
+                </Button>
               ) : (
                 <p className="m-0 text-xs text-muted">Invite link is disabled.</p>
               )}
@@ -592,6 +618,49 @@ export default function ChatInfoDrawer({
                 ))}
               </div>
             </Image.PreviewGroup>
+          </div>
+        )}
+
+        {/* Shared Files & Documents */}
+        {sharedFiles.length > 0 && (
+          <div className="space-y-2 border-t border-[var(--color-border)] pt-4">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+              Shared Files ({sharedFiles.length})
+            </span>
+            <div className="space-y-1.5">
+              {sharedFiles.slice(0, 10).map((f, i) => {
+                const isPdf =
+                  f.format === 'pdf' ||
+                  f.mimeType === 'application/pdf' ||
+                  /\.pdf(\?|$)/i.test(f.name || f.url || '')
+                const href = f.dataUrl || getCloudinaryDownloadUrl(f.url)
+                return (
+                  <a
+                    key={i}
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    download={f.name || 'file'}
+                    className="flex items-center justify-between gap-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-raised)] p-2 text-xs text-foreground no-underline hover:border-primary"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      {isPdf ? (
+                        <FilePdfOutlined className="shrink-0 text-base text-red-400" />
+                      ) : (
+                        <FileOutlined className="shrink-0 text-base text-primary" />
+                      )}
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">{f.name || 'File'}</div>
+                        {f.size > 0 && (
+                          <div className="text-[10px] text-muted">{formatBytes(f.size)}</div>
+                        )}
+                      </div>
+                    </div>
+                    <DownloadOutlined className="shrink-0 text-muted" />
+                  </a>
+                )
+              })}
+            </div>
           </div>
         )}
 

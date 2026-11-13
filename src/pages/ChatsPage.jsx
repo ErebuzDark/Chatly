@@ -155,15 +155,28 @@ export default function ChatsPage() {
     )
   }, [otherUid, selectedChat?.id, selectedChat?.memberInfo])
 
-  // Mark chat read when viewing messages (updates unread count + lastReadAt + lastReadMessageId)
+  // Mark chat read when viewing messages while the browser tab is visible
+  // (so background tabs keep their unread badge until the user switches back to the tab)
   const unreadInSelected = selectedChat?.unreadCounts?.[currentUser?.uid] || 0
   const latestMsgId = messages[messages.length - 1]?.id || null
   const myLastReadMsgId = selectedChat?.lastReadMessageId?.[currentUser?.uid] || null
 
   useEffect(() => {
-    if (!selectedChatId || !currentUser?.uid) return
-    if (unreadInSelected > 0 || (latestMsgId && latestMsgId !== myLastReadMsgId)) {
-      markChatRead(selectedChatId, currentUser.uid, latestMsgId)
+    if (!selectedChatId || !currentUser?.uid) return undefined
+
+    const markIfVisible = () => {
+      if (document.visibilityState !== 'visible') return
+      if (unreadInSelected > 0 || (latestMsgId && latestMsgId !== myLastReadMsgId)) {
+        markChatRead(selectedChatId, currentUser.uid, latestMsgId)
+      }
+    }
+
+    markIfVisible()
+    document.addEventListener('visibilitychange', markIfVisible)
+    window.addEventListener('focus', markIfVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', markIfVisible)
+      window.removeEventListener('focus', markIfVisible)
     }
   }, [selectedChatId, currentUser?.uid, unreadInSelected, latestMsgId, myLastReadMsgId])
 

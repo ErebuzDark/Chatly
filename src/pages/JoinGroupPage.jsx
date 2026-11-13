@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { App, Avatar, Button, Empty, Skeleton } from 'antd'
 import { TeamOutlined } from '@ant-design/icons'
 import { useAuth } from '@/features/auth/hooks/useAuth'
+import { useChats } from '@/features/chats/hooks/useChats'
 import {
   findGroupByInviteCode,
   joinGroupByInviteCode,
@@ -13,6 +14,7 @@ export default function JoinGroupPage() {
   const { inviteCode } = useParams()
   const navigate = useNavigate()
   const { profile } = useAuth()
+  const { chats, selectChat } = useChats()
   const { message } = App.useApp()
 
   const [group, setGroup] = useState(null)
@@ -24,6 +26,26 @@ export default function JoinGroupPage() {
     const load = async () => {
       setLoading(true)
       try {
+        const raw = decodeURIComponent((inviteCode || '').trim())
+        const codePart = (raw.includes('--') ? raw.split('--').pop() : raw)
+          .trim()
+          .toLowerCase()
+
+        // Fast-path: check if this group is already in the user's loaded chats
+        const localMatch = chats.find(
+          (c) =>
+            c.type === 'group' &&
+            c.inviteEnabled !== false &&
+            (c.inviteCode || '').toLowerCase() === codePart,
+        )
+        if (localMatch) {
+          if (active) {
+            setGroup(localMatch)
+            setLoading(false)
+          }
+          return
+        }
+
         const found = await findGroupByInviteCode(inviteCode)
         if (active) setGroup(found)
       } catch {
@@ -36,7 +58,7 @@ export default function JoinGroupPage() {
     return () => {
       active = false
     }
-  }, [inviteCode])
+  }, [inviteCode, chats])
 
   const handleJoin = async () => {
     if (!profile) return
@@ -44,6 +66,7 @@ export default function JoinGroupPage() {
     try {
       const chatId = await joinGroupByInviteCode(inviteCode, profile)
       message.success(`Joined ${group?.title || 'group'}!`)
+      selectChat(chatId)
       navigate(`/chats?chatId=${chatId}`, { replace: true })
     } catch (err) {
       message.error(getErrorMessage(err))
@@ -94,11 +117,14 @@ export default function JoinGroupPage() {
           size="large"
           block
           loading={joining}
-          onClick={() =>
-            alreadyMember
-              ? navigate(`/chats?chatId=${group.id}`)
-              : handleJoin()
-          }
+          onClick={() => {
+            if (alreadyMember) {
+              selectChat(group.id)
+              navigate(`/chats?chatId=${group.id}`)
+            } else {
+              handleJoin()
+            }
+          }}
         >
           {alreadyMember ? 'Open Group Chat' : 'Join Group'}
         </Button>

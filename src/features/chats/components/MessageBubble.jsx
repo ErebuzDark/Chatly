@@ -1,14 +1,17 @@
 import { memo, useRef, useState } from 'react'
-import { Avatar, Button, Dropdown, Image, Popover, Slider, Tooltip } from 'antd'
+import { Alert, App, Avatar, Button, Dropdown, Image, Modal, Popover, Slider, Tooltip } from 'antd'
 import {
   BarChartOutlined,
   CheckCircleFilled,
   CheckCircleOutlined,
   CheckOutlined,
+  CopyOutlined,
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
+  EyeOutlined,
   FileOutlined,
+  FilePdfOutlined,
   LinkOutlined,
   LockOutlined,
   MoreOutlined,
@@ -29,6 +32,10 @@ import {
   getInitials,
   toDate,
 } from '@/lib/utils'
+import {
+  getCloudinaryDownloadUrl,
+  getPdfPreviewImageUrl,
+} from '@/services/cloudinary'
 import LinkEmbedPreview from '@/features/chats/components/LinkEmbedPreview'
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥']
@@ -263,6 +270,281 @@ function PollCard({ message, chat, currentUid, isOwn, onVotePoll, onToggleCloseP
   )
 }
 
+function FileAttachmentCard({ file, isOwn }) {
+  const { message } = App.useApp()
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewSrc, setPreviewSrc] = useState(null)
+  const [loadingFile, setLoadingFile] = useState(false)
+  const [aclBlocked, setAclBlocked] = useState(false)
+  const [thumbFailed, setThumbFailed] = useState(false)
+
+  const fileName = file.name || 'Attachment'
+  const isPdf =
+    file.format === 'pdf' ||
+    file.mimeType === 'application/pdf' ||
+    /\.pdf(\?|$)/i.test(fileName) ||
+    /\.pdf(\?|$)/i.test(file.url || '')
+  const isDocPreviewable =
+    isPdf || /\.(docx?|xlsx?|pptx?|txt|csv)$/i.test(fileName)
+
+  const pdfThumbUrl = isPdf && !thumbFailed ? getPdfPreviewImageUrl(file.url) : null
+
+  const triggerBrowserDownload = (href, name) => {
+    const a = document.createElement('a')
+    a.href = href
+    a.download = name || 'download'
+    a.rel = 'noreferrer'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+  }
+
+  const handleDownload = async (e) => {
+    e?.stopPropagation?.()
+    if (file.dataUrl) {
+      triggerBrowserDownload(file.dataUrl, fileName)
+      return
+    }
+    if (!file.url) return
+
+    setLoadingFile(true)
+    try {
+      const resp = await fetch(file.url)
+      if (!resp.ok) {
+        if (resp.status === 401 || resp.status === 403) {
+          setAclBlocked(true)
+          setPreviewOpen(true)
+          return
+        }
+        throw new Error(`HTTP ${resp.status}`)
+      }
+      const blob = await resp.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      triggerBrowserDownload(blobUrl, fileName)
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 15000)
+    } catch {
+      // Fallback to direct download link
+      window.open(getCloudinaryDownloadUrl(file.url), '_blank', 'noopener,noreferrer')
+    } finally {
+      setLoadingFile(false)
+    }
+  }
+
+  const handlePreview = async (e) => {
+    e?.stopPropagation?.()
+    if (file.dataUrl) {
+      setAclBlocked(false)
+      setPreviewSrc(file.dataUrl)
+      setPreviewOpen(true)
+      return
+    }
+    if (!file.url) return
+
+    setLoadingFile(true)
+    try {
+      const resp = await fetch(file.url)
+      if (!resp.ok) {
+        if (resp.status === 401 || resp.status === 403) {
+          setAclBlocked(true)
+          setPreviewSrc(null)
+          setPreviewOpen(true)
+          return
+        }
+        throw new Error(`HTTP ${resp.status}`)
+      }
+      const rawBlob = await resp.blob()
+      const finalBlob =
+        isPdf && rawBlob.type !== 'application/pdf'
+          ? new Blob([rawBlob], { type: 'application/pdf' })
+          : rawBlob
+      const blobUrl = URL.createObjectURL(finalBlob)
+      setAclBlocked(false)
+      setPreviewSrc(blobUrl)
+      setPreviewOpen(true)
+    } catch {
+      if (isDocPreviewable) {
+        setAclBlocked(false)
+        setPreviewSrc(
+          `https://docs.google.com/gview?url=${encodeURIComponent(file.url)}&embedded=true`,
+        )
+        setPreviewOpen(true)
+      } else {
+        message.info('Opening file in a new tab...')
+        window.open(file.url, '_blank', 'noopener,noreferrer')
+      }
+    } finally {
+      setLoadingFile(false)
+    }
+  }
+
+  return (
+    <>
+      <div
+        className={cn(
+          'mb-1.5 w-[min(235px,68vw)] sm:w-72 max-w-full overflow-hidden rounded-xl border text-xs transition-all',
+          isOwn
+            ? 'border-white/25 bg-black/15 text-white'
+            : 'border-[var(--color-border)] bg-[var(--color-surface)] text-foreground',
+        )}
+      >
+        {/* Optional Page-1 Thumbnail for PDFs */}
+        {pdfThumbUrl && (
+          <div
+            onClick={handlePreview}
+            className="relative h-32 w-full cursor-pointer overflow-hidden border-b border-white/15 bg-black/20"
+          >
+            <img
+              src={pdfThumbUrl}
+              alt={fileName}
+              className="h-full w-full object-cover object-top transition-transform hover:scale-105"
+              onError={() => setThumbFailed(true)}
+            />
+            <span className="absolute top-2 left-2 rounded bg-red-600/90 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white shadow">
+              PDF
+            </span>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2.5 p-2.5">
+          <div
+            className={cn(
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-lg',
+              isPdf
+                ? isOwn
+                  ? 'bg-white/20 text-white'
+                  : 'bg-red-500/15 text-red-400'
+                : isOwn
+                  ? 'bg-white/20 text-white'
+                  : 'bg-primary/15 text-primary',
+            )}
+          >
+            {isPdf ? <FilePdfOutlined /> : <FileOutlined />}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-medium" title={fileName}>
+              {fileName}
+            </div>
+            <div className="flex items-center gap-1.5 text-[11px] opacity-75">
+              <span>{isPdf ? 'PDF Document' : 'File'}</span>
+              {file.size > 0 && <span>• {formatBytes(file.size)}</span>}
+            </div>
+          </div>
+        </div>
+
+        <div
+          className={cn(
+            'flex items-center border-t px-2 py-1',
+            isOwn ? 'border-white/15 bg-black/10' : 'border-[var(--color-border)] bg-black/5',
+          )}
+        >
+          {isDocPreviewable && (
+            <button
+              type="button"
+              disabled={loadingFile}
+              onClick={handlePreview}
+              className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded border-0 bg-transparent py-1 text-[11px] font-semibold text-current opacity-90 hover:opacity-100"
+            >
+              <EyeOutlined /> {loadingFile ? 'Loading...' : 'Preview'}
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={loadingFile}
+            onClick={handleDownload}
+            className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded border-0 bg-transparent py-1 text-[11px] font-semibold text-current opacity-90 hover:opacity-100"
+          >
+            <DownloadOutlined /> Download
+          </button>
+        </div>
+      </div>
+
+      <Modal
+        title={fileName}
+        open={previewOpen}
+        onCancel={() => {
+          setPreviewOpen(false)
+          if (previewSrc && previewSrc.startsWith('blob:')) {
+            URL.revokeObjectURL(previewSrc)
+          }
+          setPreviewSrc(null)
+        }}
+        width="min(860px, 96vw)"
+        centered
+        footer={[
+          <Button key="close" onClick={() => setPreviewOpen(false)}>
+            Close
+          </Button>,
+          !aclBlocked && (
+            <Button
+              key="download"
+              type="primary"
+              icon={<DownloadOutlined />}
+              onClick={handleDownload}
+            >
+              Download
+            </Button>
+          ),
+        ]}
+      >
+        {aclBlocked ? (
+          <div className="space-y-4">
+            <Alert
+              type="warning"
+              showIcon
+              message="Cloudinary PDF / ZIP Delivery is Currently Disabled on Your Cloudinary Account"
+              description={
+                <div className="space-y-1.5 text-xs">
+                  <p className="m-0">
+                    By default, Cloudinary Free accounts block direct browser delivery of{' '}
+                    <strong>.pdf</strong> and <strong>.zip</strong> URLs (HTTP 401) until enabled in
+                    your Cloudinary dashboard:
+                  </p>
+                  <ol className="m-0 pl-4 space-y-1">
+                    <li>
+                      Open your <strong>Cloudinary Console</strong> → click{' '}
+                      <strong>Settings</strong> (gear icon).
+                    </li>
+                    <li>
+                      Go to the <strong>Security</strong> tab.
+                    </li>
+                    <li>
+                      Check <strong>&quot;Allow delivery of PDF and ZIP files&quot;</strong> and
+                      click <strong>Save</strong>.
+                    </li>
+                  </ol>
+                  <p className="m-0 pt-1 text-muted">
+                    Note: Newly sent PDFs under 550 KB now also include an automatic inline backup so
+                    they open immediately even before changing that setting.
+                  </p>
+                </div>
+              }
+            />
+            {pdfThumbUrl && (
+              <div className="overflow-hidden rounded-lg border border-[var(--color-border)] bg-black/20 p-2 text-center">
+                <div className="mb-1.5 text-xs font-medium text-muted">
+                  Page 1 Preview ({fileName})
+                </div>
+                <img
+                  src={pdfThumbUrl}
+                  alt={fileName}
+                  className="mx-auto max-h-[60vh] w-auto rounded object-contain"
+                />
+              </div>
+            )}
+          </div>
+        ) : previewSrc ? (
+          <iframe
+            src={previewSrc}
+            title={fileName}
+            className="h-[72vh] w-full rounded-lg border border-[var(--color-border)] bg-white"
+          />
+        ) : null}
+      </Modal>
+    </>
+  )
+}
+
 const EMPTY_SEEN = []
 
 const MessageBubble = memo(function MessageBubble({
@@ -283,6 +565,7 @@ const MessageBubble = memo(function MessageBubble({
   onToggleClosePoll,
   onScrollToMessage,
 }) {
+  const { message: appMessage } = App.useApp()
   const [reactionOpen, setReactionOpen] = useState(false)
 
   if (message.type === 'system') {
@@ -357,6 +640,20 @@ const MessageBubble = memo(function MessageBubble({
       label: 'Reply',
       onClick: () => onReply?.(message),
     },
+    !isDeleted &&
+      message.text && {
+        key: 'copy',
+        icon: <CopyOutlined />,
+        label: 'Copy text',
+        onClick: async () => {
+          try {
+            await navigator.clipboard.writeText(message.text)
+            appMessage.success('Copied to clipboard')
+          } catch {
+            appMessage.error('Failed to copy')
+          }
+        },
+      },
     !isDeleted && {
       key: 'forward',
       icon: <ShareAltOutlined />,
@@ -396,11 +693,18 @@ const MessageBubble = memo(function MessageBubble({
   const imageAttachments = (message.attachments || []).filter((a) =>
     a.type?.startsWith('image'),
   )
+  const videoAttachments = (message.attachments || []).filter((a) =>
+    a.type?.startsWith('video'),
+  )
   const voiceAttachments = (message.attachments || []).filter(
     (a) => a.type === 'voice' || a.type?.startsWith('audio'),
   )
   const fileAttachments = (message.attachments || []).filter(
-    (a) => !a.type?.startsWith('image') && a.type !== 'voice' && !a.type?.startsWith('audio'),
+    (a) =>
+      !a.type?.startsWith('image') &&
+      !a.type?.startsWith('video') &&
+      a.type !== 'voice' &&
+      !a.type?.startsWith('audio'),
   )
 
   return (
@@ -506,6 +810,21 @@ const MessageBubble = memo(function MessageBubble({
                   </Image.PreviewGroup>
                 )}
 
+                {/* Video Attachments */}
+                {videoAttachments.map((vid, idx) => (
+                  <div
+                    key={idx}
+                    className="mb-1.5 w-[min(240px,68vw)] sm:w-72 max-w-full overflow-hidden rounded-lg bg-black"
+                  >
+                    <video
+                      src={vid.url}
+                      controls
+                      preload="metadata"
+                      className="max-h-64 w-full rounded-lg"
+                    />
+                  </div>
+                ))}
+
                 {/* Voice Notes */}
                 {voiceAttachments.map((v, idx) => (
                   <VoiceNotePlayer
@@ -516,30 +835,9 @@ const MessageBubble = memo(function MessageBubble({
                   />
                 ))}
 
-                {/* File Attachments */}
+                {/* File / PDF Attachments */}
                 {fileAttachments.map((f, idx) => (
-                  <a
-                    key={idx}
-                    href={f.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    download={f.name}
-                    className={cn(
-                      'mb-1 flex items-center gap-2.5 rounded-lg border p-2.5 text-xs no-underline',
-                      isOwn
-                        ? 'border-white/25 bg-black/15 text-white'
-                        : 'border-[var(--color-border)] bg-[var(--color-surface)] text-foreground',
-                    )}
-                  >
-                    <FileOutlined className="text-lg" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">{f.name || 'Attachment'}</div>
-                      {f.size > 0 && (
-                        <div className="opacity-75">{formatBytes(f.size)}</div>
-                      )}
-                    </div>
-                    <DownloadOutlined />
-                  </a>
+                  <FileAttachmentCard key={idx} file={f} isOwn={isOwn} />
                 ))}
 
                 {/* Poll Attachment (Group Chats) */}

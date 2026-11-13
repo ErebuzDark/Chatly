@@ -27,11 +27,24 @@ export default function ForwardMessageModal({
   const handleForward = async (targetChat) => {
     setSendingId(targetChat.id)
     try {
+      let forwardText = messageToForward.text || ''
+      let forwardType =
+        messageToForward.type === 'system' || messageToForward.type === 'poll'
+          ? 'text'
+          : messageToForward.type
+
+      if (messageToForward.type === 'poll' && messageToForward.poll) {
+        const opts = (messageToForward.poll.options || [])
+          .map((o, idx) => `${idx + 1}. ${o.text}`)
+          .join('\n')
+        forwardText = `📊 Poll: ${messageToForward.poll.question}\n${opts}`
+      }
+
       await sendMessage({
         chatId: targetChat.id,
         senderProfile: currentUser,
-        text: messageToForward.text || '',
-        type: messageToForward.type === 'system' ? 'text' : messageToForward.type,
+        text: forwardText,
+        type: forwardType,
         attachments: messageToForward.attachments || [],
         forwardedFrom: { senderName: messageToForward.senderName || 'User' },
         memberIds: targetChat.memberIds || [],

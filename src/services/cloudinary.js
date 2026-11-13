@@ -3,9 +3,53 @@ const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024 // 10 MB
 const MAX_FILE_BYTES = 25 * 1024 * 1024 // 25 MB
+const INLINE_FALLBACK_MAX_BYTES = 550 * 1024 // 550 KB fallback for restricted PDF/ZIP accounts
 
 export function isCloudinaryConfigured() {
   return Boolean(CLOUD_NAME && UPLOAD_PRESET)
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve) => {
+    try {
+      const reader = new FileReader()
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null)
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(file)
+    } catch {
+      resolve(null)
+    }
+  })
+}
+
+/**
+ * If a PDF was uploaded to Cloudinary under `/image/upload/`, returns a URL
+ * that renders Page 1 of the PDF as a JPG preview image.
+ */
+export function getPdfPreviewImageUrl(url = '') {
+  if (!url || !url.includes('res.cloudinary.com')) return null
+  if (!/\.pdf(\?|$)/i.test(url) || !url.includes('/image/upload/')) return null
+  return url
+    .replace('/image/upload/', '/image/upload/f_jpg,pg_1,w_600,q_auto/')
+    .replace(/\.pdf(\?.*)?$/i, '.jpg')
+}
+
+/**
+ * Returns a Cloudinary URL with `fl_attachment` so browsers download the file
+ * instead of navigating away when possible.
+ */
+export function getCloudinaryDownloadUrl(url = '') {
+  if (!url || !url.includes('res.cloudinary.com')) return url
+  if (url.includes('/image/upload/')) {
+    return url.replace('/image/upload/', '/image/upload/fl_attachment/')
+  }
+  if (url.includes('/video/upload/')) {
+    return url.replace('/video/upload/', '/video/upload/fl_attachment/')
+  }
+  if (url.includes('/raw/upload/')) {
+    return url.replace('/raw/upload/', '/raw/upload/fl_attachment/')
+  }
+  return url
 }
 
 /**
@@ -97,13 +141,34 @@ export const uploadVoiceNote = (blob, opts = {}) => {
   return uploadToCloudinary(file, { ...opts, resourceType: 'video', folder: 'chatly/voice' })
 }
 
-export const uploadAttachment = (file, opts = {}) => {
+export const uploadAttachment = async (file, opts = {}) => {
   if (file.type?.startsWith('image/')) {
     return uploadImage(file, { ...opts, folder: 'chatly/images' })
   }
   if (file.type?.startsWith('audio/') || file.type?.startsWith('video/')) {
     return uploadToCloudinary(file, { ...opts, resourceType: 'video', folder: 'chatly/media' })
   }
-  return uploadToCloudinary(file, { ...opts, resourceType: 'auto', folder: 'chatly/files' })
+
+  const isPdfOrZip =
+    file.type === 'application/pdf' ||
+    /\.pdf$/i.test(file.name || '') ||
+    /\.zip$/i.test(file.name || '')
+
+  const res = await uploadToCloudinary(file, {
+    ...opts,
+    resourceType: 'auto',
+    folder: 'chatly/files',
+  })
+
+  // For compact PDFs/ZIPs (<= 550 KB), attach a dataUrl fallback so the file remains
+  // viewable/downloadable even if the Cloudinary account hasn't enabled "PDF and ZIP files delivery" yet.
+  if (isPdfOrZip && file.size > 0 && file.size <= INLINE_FALLBACK_MAX_BYTES) {
+    const dataUrl = await readFileAsDataUrl(file)
+    if (dataUrl) {
+      res.dataUrl = dataUrl
+    }
+  }
+
+  return res
 }
 
