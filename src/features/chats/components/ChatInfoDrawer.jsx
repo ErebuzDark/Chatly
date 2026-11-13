@@ -44,8 +44,15 @@ import {
   toggleChatFlag,
   toggleGroupInvite,
   updateChatBackground,
+  updateChatTheme,
   updateGroupDetails,
 } from '@/features/chats/api/chatsApi'
+import {
+  CHAT_THEMES,
+  QUICK_EMOJI_OPTIONS,
+  getChatQuickEmoji,
+  getChatTheme,
+} from '@/features/chats/constants/chatThemes'
 import {
   blockUser,
   searchUsersByPrefix,
@@ -152,9 +159,14 @@ export default function ChatInfoDrawer({
           !a.type?.startsWith('image') &&
           !a.type?.startsWith('video') &&
           a.type !== 'voice' &&
+          a.type !== 'sticker' &&
+          a.type !== 'gif' &&
           !a.type?.startsWith('audio'),
       ),
     )
+
+  const currentTheme = getChatTheme(chat)
+  const currentQuickEmoji = getChatQuickEmoji(chat)
 
   const startEditGroup = () => {
     setGroupTitle(chat.title || '')
@@ -404,6 +416,87 @@ export default function ChatInfoDrawer({
               checked={isArchived}
               onChange={(v) => toggleChatFlag(chat.id, currentUser.uid, 'archivedBy', v)}
             />
+          </div>
+        </div>
+
+        {/* Chat Theme & Quick Reaction Emoji */}
+        <div className="space-y-3 border-t border-[var(--color-border)] pt-4">
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+                Chat Theme
+              </span>
+              <span className="text-xs font-medium text-muted">{currentTheme.name}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {Object.values(CHAT_THEMES).map((theme) => {
+                const active = currentTheme.id === theme.id
+                return (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    title={theme.name}
+                    onClick={async () => {
+                      if (active) return
+                      try {
+                        await updateChatTheme(
+                          chat.id,
+                          { themeId: theme.id, themeName: theme.name },
+                          currentUser,
+                        )
+                      } catch (err) {
+                        message.error(getErrorMessage(err))
+                      }
+                    }}
+                    style={{ background: theme.swatch }}
+                    className={`h-7 w-7 rounded-full transition-transform hover:scale-110 ${
+                      active
+                        ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--color-surface)] scale-110'
+                        : 'opacity-80 hover:opacity-100'
+                    }`}
+                  />
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="space-y-1.5 pt-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted">
+                Quick Emoji
+              </span>
+              <span className="text-base">{currentQuickEmoji}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {QUICK_EMOJI_OPTIONS.map((emoji) => {
+                const active = currentQuickEmoji === emoji
+                return (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={async () => {
+                      if (active) return
+                      try {
+                        await updateChatTheme(
+                          chat.id,
+                          { quickEmoji: emoji },
+                          currentUser,
+                        )
+                      } catch (err) {
+                        message.error(getErrorMessage(err))
+                      }
+                    }}
+                    className={`flex h-8 w-8 items-center justify-center rounded-lg text-base transition-transform hover:scale-110 ${
+                      active
+                        ? 'bg-primary/20 ring-1 ring-primary'
+                        : 'bg-[var(--color-surface-raised)] hover:bg-primary/10'
+                    }`}
+                  >
+                    {emoji}
+                  </button>
+                )
+              })}
+            </div>
           </div>
         </div>
 

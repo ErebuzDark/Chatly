@@ -12,10 +12,12 @@ import {
   UserAddOutlined,
 } from '@ant-design/icons'
 import { toggleChatFlag } from '@/features/chats/api/chatsApi'
+import { getActiveStatusNote } from '@/features/profile/api/profileApi'
+import StoriesBar from '@/features/chats/components/StoriesBar'
 import { cn, formatRelativeTime, getInitials, isUserOnline, toDate } from '@/lib/utils'
 
 export function getChatDisplay(chat, currentUid) {
-  if (!chat) return { title: 'Chat', avatar: null, otherUid: null, username: '' }
+  if (!chat) return { title: 'Chat', avatar: null, otherUid: null, username: '', statusNote: null }
   if (chat.type === 'group') {
     return {
       title: chat.title || 'Group Chat',
@@ -24,6 +26,7 @@ export function getChatDisplay(chat, currentUid) {
       username: '',
       isGroup: true,
       online: false,
+      statusNote: null,
     }
   }
   const otherUid = (chat.memberIds || []).find((id) => id !== currentUid) || currentUid
@@ -35,6 +38,7 @@ export function getChatDisplay(chat, currentUid) {
     username: info.username || '',
     isGroup: false,
     online: isUserOnline(info, true),
+    statusNote: getActiveStatusNote(info),
   }
 }
 
@@ -150,6 +154,9 @@ export default function ChatSidebar({
         />
       </div>
 
+      {/* 24-Hour Stories Bar & Custom Status Bubbles */}
+      <StoriesBar onSelectChat={onSelectChat} />
+
       {/* Conversation List */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {loading ? (
@@ -173,7 +180,7 @@ export default function ChatSidebar({
           </div>
         ) : (
           filteredChats.map((chat) => {
-            const { title, avatar, isGroup, online } = getChatDisplay(chat, currentUid)
+            const { title, avatar, isGroup, online, statusNote } = getChatDisplay(chat, currentUid)
             const unread = chat.unreadCounts?.[currentUid] || 0
             const isPinned = Array.isArray(chat.pinnedBy) && chat.pinnedBy.includes(currentUid)
             const isMuted = Array.isArray(chat.mutedBy) && chat.mutedBy.includes(currentUid)
@@ -253,14 +260,23 @@ export default function ChatSidebar({
 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
-                    <span
-                      className={cn(
-                        'truncate text-sm',
-                        unread > 0 ? 'font-bold' : 'font-medium',
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span
+                        className={cn(
+                          'truncate text-sm',
+                          unread > 0 ? 'font-bold' : 'font-medium',
+                        )}
+                      >
+                        {title}
+                      </span>
+                      {statusNote && (
+                        <Tooltip title={`${statusNote.emoji || ''} ${statusNote.text}`}>
+                          <span className="max-w-24 shrink-0 truncate rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.2 text-[10px] text-foreground">
+                            {statusNote.emoji} {statusNote.text}
+                          </span>
+                        </Tooltip>
                       )}
-                    >
-                      {title}
-                    </span>
+                    </div>
                     <span className="shrink-0 text-[11px] text-muted">
                       {formatRelativeTime(chat.lastMessageAt)}
                     </span>

@@ -173,12 +173,18 @@ export async function sendMessage({
   text = '',
   type = 'text',
   attachments = [],
+  location = null,
+  mentions = [],
   replyTo = null,
   forwardedFrom = null,
   memberIds = [],
 }) {
   const cleanText = text.trim()
-  if (!cleanText && attachments.length === 0) return null
+  if (!cleanText && attachments.length === 0 && !location) return null
+
+  const cleanMentions = Array.isArray(mentions)
+    ? Array.from(new Set(mentions.filter(Boolean)))
+    : []
 
   const msgPayload = {
     chatId,
@@ -188,6 +194,14 @@ export async function sendMessage({
     type,
     text: cleanText,
     attachments,
+    location: location
+      ? {
+          lat: Number(location.lat),
+          lng: Number(location.lng),
+          label: location.label || 'Shared location',
+        }
+      : null,
+    mentions: cleanMentions,
     replyTo: replyTo
       ? {
           id: replyTo.id,
@@ -216,6 +230,9 @@ export async function sendMessage({
     if (type === 'image') previewText = '📷 Photo'
     else if (type === 'video') previewText = '🎬 Video'
     else if (type === 'voice') previewText = '🎤 Voice message'
+    else if (type === 'sticker') previewText = '✨ Sticker'
+    else if (type === 'gif') previewText = '🎞️ GIF'
+    else if (type === 'location') previewText = `📍 ${location?.label || 'Shared location'}`
     else if (type === 'file') previewText = `📎 ${attachments[0]?.name || 'File'}`
   }
 
@@ -226,6 +243,7 @@ export async function sendMessage({
       senderId: senderProfile.uid,
       senderName: senderProfile.displayName || senderProfile.username,
       type,
+      mentions: cleanMentions,
       createdAt: new Date().toISOString(),
     },
     lastMessageAt: serverTimestamp(),
@@ -459,6 +477,39 @@ export async function updateChatBackground(chatId, backgroundURL, actorProfile) 
     const actionText = backgroundURL
       ? `${actorProfile.displayName} changed the chat background`
       : `${actorProfile.displayName} removed the chat background`
+    await addDoc(collection(db, 'chats', chatId, 'messages'), {
+      chatId,
+      senderId: actorProfile.uid,
+      senderName: actorProfile.displayName,
+      type: 'system',
+      text: actionText,
+      attachments: [],
+      reactions: {},
+      deletedForAll: false,
+      deletedFor: [],
+      createdAt: serverTimestamp(),
+    })
+  }
+}
+
+export async function updateChatTheme(
+  chatId,
+  { themeId, themeName, quickEmoji },
+  actorProfile,
+) {
+  if (!chatId) return
+  const patch = { updatedAt: serverTimestamp() }
+  if (themeId !== undefined) patch.themeId = themeId
+  if (quickEmoji !== undefined) patch.quickEmoji = quickEmoji
+  await updateDoc(doc(db, 'chats', chatId), patch)
+
+  if (actorProfile?.uid) {
+    let actionText = `${actorProfile.displayName} updated the chat theme`
+    if (themeName) {
+      actionText = `${actorProfile.displayName} changed the theme to ${themeName}`
+    } else if (quickEmoji) {
+      actionText = `${actorProfile.displayName} set the quick emoji to ${quickEmoji}`
+    }
     await addDoc(collection(db, 'chats', chatId, 'messages'), {
       chatId,
       senderId: actorProfile.uid,

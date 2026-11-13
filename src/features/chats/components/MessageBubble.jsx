@@ -1,5 +1,5 @@
-import { memo, useRef, useState } from 'react'
-import { Alert, App, Avatar, Button, Dropdown, Image, Modal, Popover, Slider, Tooltip } from 'antd'
+import { memo, useMemo, useRef, useState } from 'react'
+import { Alert, App, Avatar, Button, Dropdown, Image, Modal, Popover, Tooltip } from 'antd'
 import {
   BarChartOutlined,
   CheckCircleFilled,
@@ -9,6 +9,7 @@ import {
   DeleteOutlined,
   DownloadOutlined,
   EditOutlined,
+  EnvironmentOutlined,
   EyeOutlined,
   FileOutlined,
   FilePdfOutlined,
@@ -36,15 +37,29 @@ import {
   getCloudinaryDownloadUrl,
   getPdfPreviewImageUrl,
 } from '@/services/cloudinary'
+import { getChatTheme } from '@/features/chats/constants/chatThemes'
 import LinkEmbedPreview from '@/features/chats/components/LinkEmbedPreview'
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥']
+const PLAYBACK_RATES = [1, 1.5, 2]
 
-function VoiceNotePlayer({ url, duration = 0, isOwn }) {
+function VoiceNotePlayer({ url, duration = 0, waveform, isOwn }) {
   const audioRef = useRef(null)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [totalDur, setTotalDur] = useState(duration || 0)
+  const [rateIdx, setRateIdx] = useState(0)
+
+  const bars = useMemo(() => {
+    if (Array.isArray(waveform) && waveform.length >= 12) {
+      return waveform.slice(0, 28)
+    }
+    // Deterministic fallback waveform for older voice notes
+    return Array.from({ length: 28 }, (_, i) => {
+      const v = 0.25 + ((Math.sin(i * 0.85) + 1) * 0.34)
+      return Number(v.toFixed(2))
+    })
+  }, [waveform])
 
   const togglePlay = () => {
     const el = audioRef.current
@@ -52,12 +67,32 @@ function VoiceNotePlayer({ url, duration = 0, isOwn }) {
     if (playing) {
       el.pause()
     } else {
+      el.playbackRate = PLAYBACK_RATES[rateIdx]
       el.play().catch(() => {})
     }
   }
 
+  const cycleSpeed = (e) => {
+    e.stopPropagation()
+    const nextIdx = (rateIdx + 1) % PLAYBACK_RATES.length
+    setRateIdx(nextIdx)
+    if (audioRef.current) {
+      audioRef.current.playbackRate = PLAYBACK_RATES[nextIdx]
+    }
+  }
+
+  const seekToFraction = (fraction) => {
+    const el = audioRef.current
+    const dur = totalDur || el?.duration || 1
+    const target = Math.max(0, Math.min(dur, fraction * dur))
+    if (el) el.currentTime = target
+    setCurrentTime(target)
+  }
+
+  const progressRatio = totalDur > 0 ? Math.min(1, currentTime / totalDur) : 0
+
   return (
-    <div className="flex w-[min(200px,62vw)] sm:w-56 max-w-full items-center gap-2.5 py-1">
+    <div className="flex w-[min(220px,65vw)] sm:w-64 max-w-full items-center gap-2 py-1">
       <audio
         ref={audioRef}
         src={url}
@@ -81,28 +116,106 @@ function VoiceNotePlayer({ url, duration = 0, isOwn }) {
       >
         {playing ? <PauseCircleFilled /> : <PlayCircleFilled />}
       </button>
-      <div className="flex-1">
-        <Slider
-          min={0}
-          max={totalDur || 1}
-          step={0.1}
-          value={currentTime}
-          tooltip={{ formatter: null }}
-          onChange={(v) => {
-            if (audioRef.current) audioRef.current.currentTime = v
-            setCurrentTime(v)
-          }}
-          className="!my-1"
-        />
+
+      <div className="min-w-0 flex-1 space-y-1">
+        {/* Interactive Waveform Bars */}
+        <div className="flex h-6 items-center gap-[2px]">
+          {bars.map((amp, i) => {
+            const barRatio = (i + 0.5) / bars.length
+            const active = barRatio <= progressRatio
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => seekToFraction(i / bars.length)}
+                style={{ height: `${Math.max(20, Math.round(amp * 100))}%` }}
+                className={cn(
+                  'w-1 flex-1 cursor-pointer rounded-full border-0 p-0 transition-all',
+                  isOwn
+                    ? active
+                      ? 'bg-white'
+                      : 'bg-white/35 hover:bg-white/60'
+                    : active
+                      ? 'bg-primary'
+                      : 'bg-foreground/25 hover:bg-foreground/45',
+                )}
+              />
+            )
+          })}
+        </div>
+
         <div
           className={cn(
-            'flex justify-between text-[10px]',
+            'flex items-center justify-between text-[10px] tabular-nums',
             isOwn ? 'text-white/80' : 'text-muted',
           )}
         >
-          <span>{formatDuration(currentTime)}</span>
-          <span>{formatDuration(totalDur)}</span>
+          <span>
+            {formatDuration(currentTime)} / {formatDuration(totalDur)}
+          </span>
+          <button
+            type="button"
+            onClick={cycleSpeed}
+            className={cn(
+              'cursor-pointer rounded px-1.5 py-0.2 text-[10px] font-bold border-0',
+              isOwn
+                ? 'bg-white/20 text-white hover:bg-white/30'
+                : 'bg-primary/15 text-primary hover:bg-primary/25',
+            )}
+          >
+            {PLAYBACK_RATES[rateIdx]}x
+          </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function LocationCard({ location, isOwn }) {
+  if (!location || typeof location.lat !== 'number' || typeof location.lng !== 'number') {
+    return null
+  }
+  const { lat, lng, label } = location
+  const delta = 0.005
+  const bbox = `${lng - delta},${lat - delta},${lng + delta},${lat + delta}`
+  const embedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(
+    bbox,
+  )}&layer=mapnik&marker=${encodeURIComponent(`${lat},${lng}`)}`
+  const gmapsUrl = `https://www.google.com/maps?q=${lat},${lng}`
+
+  return (
+    <div
+      className={cn(
+        'mb-1 w-[min(235px,68vw)] sm:w-72 max-w-full overflow-hidden rounded-xl border text-xs',
+        isOwn
+          ? 'border-white/25 bg-black/15 text-white'
+          : 'border-[var(--color-border)] bg-[var(--color-surface)] text-foreground',
+      )}
+    >
+      <div className="h-36 w-full bg-black/20">
+        <iframe
+          src={embedUrl}
+          title={label || 'Shared location'}
+          className="h-full w-full border-0"
+          loading="lazy"
+        />
+      </div>
+      <div className="flex items-center justify-between gap-2 p-2.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <EnvironmentOutlined className={cn('shrink-0 text-sm', isOwn ? 'text-white' : 'text-primary')} />
+          <span className="truncate font-medium">{label || `${lat}, ${lng}`}</span>
+        </div>
+        <a
+          href={gmapsUrl}
+          target="_blank"
+          rel="noreferrer"
+          className={cn(
+            'shrink-0 font-semibold underline',
+            isOwn ? 'text-white' : 'text-primary',
+          )}
+        >
+          Maps
+        </a>
       </div>
     </div>
   )
@@ -139,7 +252,7 @@ function LinkPreviewCard({ url, isOwn }) {
 }
 
 function renderTextWithLinks(text = '', isOwn) {
-  const parts = text.split(/(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/gi)
+  const parts = text.split(/(https?:\/\/[^\s<]+[^<.,:;"')\]\s]|@[a-zA-Z0-9_.]{2,30})/gi)
   return parts.map((part, i) => {
     if (/^https?:\/\//i.test(part)) {
       return (
@@ -152,6 +265,19 @@ function renderTextWithLinks(text = '', isOwn) {
         >
           {part}
         </a>
+      )
+    }
+    if (/^@[a-zA-Z0-9_.]{2,30}$/.test(part)) {
+      return (
+        <span
+          key={i}
+          className={cn(
+            'inline-block rounded px-1 font-semibold',
+            isOwn ? 'bg-white/25 text-white' : 'bg-primary/20 text-primary',
+          )}
+        >
+          {part}
+        </span>
       )
     }
     return <span key={i}>{part}</span>
@@ -584,6 +710,7 @@ const MessageBubble = memo(function MessageBubble({
   const liveMember = chat?.memberInfo?.[message.senderId]
   const senderAvatar = liveMember?.photoURL || message.senderPhoto || undefined
   const senderDisplayName = liveMember?.displayName || message.senderName || 'User'
+  const chatTheme = getChatTheme(chat)
 
   // Compute Sent / Delivered / Seen status for own messages
   let receiptStatus = 'sent'
@@ -690,6 +817,9 @@ const MessageBubble = memo(function MessageBubble({
       },
   ].filter(Boolean)
 
+  const stickerAttachments = (message.attachments || []).filter(
+    (a) => a.type === 'sticker' || a.type === 'gif',
+  )
   const imageAttachments = (message.attachments || []).filter((a) =>
     a.type?.startsWith('image'),
   )
@@ -701,6 +831,8 @@ const MessageBubble = memo(function MessageBubble({
   )
   const fileAttachments = (message.attachments || []).filter(
     (a) =>
+      a.type !== 'sticker' &&
+      a.type !== 'gif' &&
       !a.type?.startsWith('image') &&
       !a.type?.startsWith('video') &&
       a.type !== 'voice' &&
@@ -746,6 +878,7 @@ const MessageBubble = memo(function MessageBubble({
         >
           {/* Bubble */}
           <div
+            style={!isDeleted && isOwn ? chatTheme.bubbleStyle : undefined}
             className={cn(
               'relative min-w-0 max-w-full overflow-hidden rounded-2xl px-3 py-2 sm:px-3.5 text-sm shadow-sm [overflow-wrap:anywhere] [word-break:break-word]',
               isDeleted
@@ -789,6 +922,22 @@ const MessageBubble = memo(function MessageBubble({
               <span>This message was unsent</span>
             ) : (
               <>
+                {/* Sticker / GIF Attachments */}
+                {stickerAttachments.map((st, idx) => (
+                  <div key={idx} className="mb-1 flex justify-center">
+                    <img
+                      src={st.url}
+                      alt={st.name || 'Sticker'}
+                      className={
+                        st.type === 'sticker'
+                          ? 'h-28 w-28 object-contain drop-shadow'
+                          : 'max-h-52 w-auto rounded-xl object-cover'
+                      }
+                      loading="lazy"
+                    />
+                  </div>
+                ))}
+
                 {/* Image Attachments with Lightbox */}
                 {imageAttachments.length > 0 && (
                   <Image.PreviewGroup>
@@ -825,15 +974,21 @@ const MessageBubble = memo(function MessageBubble({
                   </div>
                 ))}
 
-                {/* Voice Notes */}
+                {/* Voice Notes with Waveform & Speed Toggle */}
                 {voiceAttachments.map((v, idx) => (
                   <VoiceNotePlayer
                     key={idx}
                     url={v.url}
                     duration={v.duration}
+                    waveform={v.waveform}
                     isOwn={isOwn}
                   />
                 ))}
+
+                {/* Shared Location Map Card */}
+                {message.location && (
+                  <LocationCard location={message.location} isOwn={isOwn} />
+                )}
 
                 {/* File / PDF Attachments */}
                 {fileAttachments.map((f, idx) => (
@@ -851,8 +1006,9 @@ const MessageBubble = memo(function MessageBubble({
                     onToggleClosePoll={onToggleClosePoll}
                   />
                 ) : (
-                  /* Text body */
-                  message.text && (
+                  /* Text body (skip redundant text if location card already shows it) */
+                  message.text &&
+                  message.type !== 'location' && (
                     <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word] leading-relaxed">
                       {renderTextWithLinks(message.text, isOwn)}
                     </div>

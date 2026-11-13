@@ -52,6 +52,7 @@ import NewChatModal from '@/features/chats/components/NewChatModal'
 import ForwardMessageModal from '@/features/chats/components/ForwardMessageModal'
 import ChatInfoDrawer from '@/features/chats/components/ChatInfoDrawer'
 import CreatePollModal from '@/features/chats/components/CreatePollModal'
+import { getActiveStatusNote } from '@/features/profile/api/profileApi'
 import { playSendSound } from '@/services/sound'
 import {
   DEFAULT_SETTINGS,
@@ -299,7 +300,7 @@ export default function ChatsPage() {
     return map
   }, [selectedChat, currentUser?.uid, visibleMessages])
 
-  const handleSend = async ({ text, type, attachments }) => {
+  const handleSend = async ({ text, type, attachments, location, mentions }) => {
     if (!selectedChat || !currentUser) return
     await sendMessage({
       chatId: selectedChat.id,
@@ -307,6 +308,8 @@ export default function ChatsPage() {
       text,
       type,
       attachments,
+      location,
+      mentions,
       replyTo,
       memberIds: selectedChat.memberIds || [],
     })
@@ -566,6 +569,18 @@ export default function ChatsPage() {
                       >
                         {title}
                       </span>
+                    )}
+
+                    {/* Custom 24h Status Note Bubble in 1:1 Header */}
+                    {!isGroup && getActiveStatusNote(otherUserDoc) && (
+                      <Tooltip
+                        title={`${getActiveStatusNote(otherUserDoc).emoji || '💭'} ${getActiveStatusNote(otherUserDoc).text}`}
+                      >
+                        <span className="inline-flex max-w-[160px] shrink-0 items-center gap-1 truncate rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                          <span>{getActiveStatusNote(otherUserDoc).emoji || '💭'}</span>
+                          <span className="truncate">{getActiveStatusNote(otherUserDoc).text}</span>
+                        </span>
+                      </Tooltip>
                     )}
                   </div>
 
@@ -851,6 +866,7 @@ export default function ChatsPage() {
             {/* Composer */}
             <MessageComposer
               chatId={selectedChat.id}
+              chat={selectedChat}
               currentUid={currentUser?.uid}
               isGroup={isGroup}
               replyTo={replyTo}

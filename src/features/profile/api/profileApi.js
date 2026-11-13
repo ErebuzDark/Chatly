@@ -47,6 +47,8 @@ export async function updateUserProfile(uid, updates) {
     'isPrivate',
     'visibility',
     'settings',
+    'statusNote',
+    'stories',
   ]
   for (const key of fields) {
     if (updates[key] !== undefined) allowed[key] = updates[key]
@@ -141,6 +143,137 @@ export async function toggleLikeWallPost(profileUid, postId, likerUid, liked) {
   await updateDoc(ref, {
     likes: liked ? arrayRemove(likerUid) : arrayUnion(likerUid),
   })
+}
+
+/* ---------------- Custom Status Bubble ("Messenger Note") ---------------- */
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+export function getActiveStatusNote(userDoc) {
+  const note = userDoc?.statusNote
+  if (!note || (!note.text && !note.emoji)) return null
+  if (note.expiresAt && Date.now() > note.expiresAt) return null
+  return note
+}
+
+export async function updateUserStatusNote(uid, { text = '', emoji = '' } = {}) {
+  if (!uid) return
+  const cleanText = text.trim().slice(0, 60)
+  const cleanEmoji = emoji.trim()
+
+  if (!cleanText && !cleanEmoji) {
+    await updateDoc(doc(db, 'users', uid), {
+      statusNote: null,
+      updatedAt: serverTimestamp(),
+    })
+    return
+  }
+
+  const now = Date.now()
+  await updateDoc(doc(db, 'users', uid), {
+    statusNote: {
+      text: cleanText,
+      emoji: cleanEmoji || '💭',
+      createdAt: now,
+      expiresAt: now + DAY_MS,
+    },
+    updatedAt: serverTimestamp(),
+  })
+}
+
+/* ---------------- 24-Hour Stories ("My Day") ---------------- */
+
+export function getActiveStories(userDoc) {
+  const list = Array.isArray(userDoc?.stories) ? userDoc.stories : []
+  const now = Date.now()
+  return list.filter((s) => s && (!s.expiresAt || s.expiresAt > now))
+}
+
+export async function addUserStory(
+  uid,
+  { type = 'image', mediaURL = null, text = '', bgCss = null, caption = '' },
+) {
+  if (!uid) throw new Error('Not signed in')
+  const userRef = doc(db, 'users', uid)
+  const snap = await getDoc(userRef)
+  const currentActive = getActiveStories(snap.data())
+
+  const now = Date.now()
+  const newStory = {
+    id: `st_${now}_${Math.random().toString(36).slice(2, 8)}`,
+    type, // 'image' | 'text'
+    mediaURL: mediaURL || null,
+    text: (text || '').trim().slice(0, 220),
+    bgCss: bgCss || null,
+    caption: (caption || '').trim().slice(0, 140),
+    createdAt: now,
+    expiresAt: now + DAY_MS,
+    viewerIds: [],
+    viewers: {},
+  }
+
+  const nextStories = [...currentActive.slice(-9), newStory]
+  await updateDoc(userRef, {
+    stories: nextStories,
+    updatedAt: serverTimestamp(),
+  })
+  return newStory
+}
+
+export async function deleteUserStory(uid, storyId) {
+  if (!uid || !storyId) return
+  const userRef = doc(db, 'users', uid)
+  const snap = await getDoc(userRef)
+  const currentActive = getActiveStories(snap.data())
+  const nextStories = currentActive.filter((s) => s.id !== storyId)
+  await updateDoc(userRef, {
+    stories: nextStories,
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function recordStoryView(storyOwnerUid, storyId, viewerProfile) {
+  if (
+    !storyOwnerUid ||
+    !storyId ||
+    !viewerProfile?.uid ||
+    storyOwnerUid === viewerProfile.uid
+  ) {
+    return
+  }
+  try {
+    const userRef = doc(db, 'users', storyOwnerUid)
+    const snap = await getDoc(userRef)
+    if (!snap.exists()) return
+    const currentActive = getActiveStories(snap.data())
+    let changed = false
+
+    const nextStories = currentActive.map((s) => {
+      if (s.id !== storyId) return s
+      const viewerIds = Array.isArray(s.viewerIds) ? s.viewerIds : []
+      if (viewerIds.includes(viewerProfile.uid)) return s
+      changed = true
+      return {
+        ...s,
+        viewerIds: [...viewerIds, viewerProfile.uid],
+        viewers: {
+          ...(s.viewers || {}),
+          [viewerProfile.uid]: {
+            uid: viewerProfile.uid,
+            displayName: viewerProfile.displayName || viewerProfile.username || 'User',
+            photoURL: viewerProfile.photoURL || null,
+            viewedAt: Date.now(),
+          },
+        },
+      }
+    })
+
+    if (changed) {
+      await updateDoc(userRef, { stories: nextStories }).catch(() => {})
+    }
+  } catch {
+    // Non-fatal if rules haven't been redeployed yet
+  }
 }
 
 /* ---------------- Account Deletion & Cleanup ---------------- */

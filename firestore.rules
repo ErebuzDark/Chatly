@@ -39,10 +39,12 @@ service cloud.firestore {
                     && request.resource.data.displayName.size() > 0
                     && request.resource.data.displayName.size() <= 50
                     && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.usernameLower)).data.uid == uid;
-      allow update: if isOwner(uid)
-                    && request.resource.data.uid == resource.data.uid
-                    && request.resource.data.username == resource.data.username
-                    && request.resource.data.usernameLower == resource.data.usernameLower;
+      allow update: if (isOwner(uid)
+                        && request.resource.data.uid == resource.data.uid
+                        && request.resource.data.username == resource.data.username
+                        && request.resource.data.usernameLower == resource.data.usernameLower)
+                    || (signedIn()
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stories']));
       allow delete: if isOwner(uid);
 
       // Wall / status posts

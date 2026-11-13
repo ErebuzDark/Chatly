@@ -74,16 +74,19 @@ export function ChatsProvider({ children }) {
             markChatDelivered(chat.id, uid)
 
             const isMuted = Array.isArray(chat.mutedBy) && chat.mutedBy.includes(uid)
+            const isMentioned =
+              Array.isArray(lastMsg.mentions) && lastMsg.mentions.includes(uid)
             const isViewingThisChat =
               activeChatId === chat.id && document.visibilityState === 'visible'
 
-            if (!isMuted && !isViewingThisChat) {
+            if ((!isMuted || isMentioned) && !isViewingThisChat) {
               if (settings.soundEnabled !== false) {
                 playNotificationSound()
               }
 
-              const chatTitle =
-                chat.type === 'group'
+              const chatTitle = isMentioned
+                ? `🔔 ${lastMsg.senderName || 'Someone'} mentioned you${chat.type === 'group' ? ` in ${chat.title || 'Group'}` : ''}`
+                : chat.type === 'group'
                   ? chat.title || 'Group chat'
                   : lastMsg.senderName || 'New message'
 
@@ -210,6 +213,8 @@ export function ChatsProvider({ children }) {
             lastSeenAt: liveUser.lastSeenAt,
             visibility: liveUser.visibility,
             isPrivate: liveUser.isPrivate,
+            statusNote: liveUser.statusNote || null,
+            stories: liveUser.stories || [],
           }
         }
       }
