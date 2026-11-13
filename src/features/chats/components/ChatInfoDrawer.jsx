@@ -17,6 +17,7 @@ import {
 } from 'antd'
 import {
   CameraOutlined,
+  CheckOutlined,
   CopyOutlined,
   CrownOutlined,
   DeleteOutlined,
@@ -426,11 +427,24 @@ export default function ChatInfoDrawer({
               <span className="text-xs font-semibold uppercase tracking-wider text-muted">
                 Chat Theme
               </span>
-              <span className="text-xs font-medium text-muted">{currentTheme.name}</span>
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
+                <span
+                  className="h-2.5 w-2.5 rounded-full shadow-xs"
+                  style={{
+                    background:
+                      currentTheme.swatch ||
+                      currentTheme.bubbleStyle?.background ||
+                      currentTheme.primaryColor,
+                  }}
+                />
+                {currentTheme.name}
+              </span>
             </div>
-            <div className="flex flex-wrap items-center gap-2 pt-1">
+            <div className="flex flex-wrap items-center gap-2.5 pt-1">
               {Object.values(CHAT_THEMES).map((theme) => {
                 const active = currentTheme.id === theme.id
+                const swatchBg =
+                  theme.swatch || theme.bubbleStyle?.background || theme.primaryColor
                 return (
                   <button
                     key={theme.id}
@@ -448,13 +462,15 @@ export default function ChatInfoDrawer({
                         message.error(getErrorMessage(err))
                       }
                     }}
-                    style={{ background: theme.swatch }}
-                    className={`h-7 w-7 rounded-full transition-transform hover:scale-110 ${
+                    style={{ background: swatchBg }}
+                    className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-white/25 text-xs text-white shadow-sm transition-transform hover:scale-110 ${
                       active
                         ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--color-surface)] scale-110'
-                        : 'opacity-80 hover:opacity-100'
+                        : 'opacity-85 hover:opacity-100'
                     }`}
-                  />
+                  >
+                    {active && <CheckOutlined className="drop-shadow" />}
+                  </button>
                 )
               })}
             </div>

@@ -3,6 +3,7 @@ export const CHAT_THEMES = {
     id: 'classic',
     name: 'Classic Blue',
     primaryColor: '#0a84ff',
+    swatch: 'linear-gradient(135deg, #0a84ff 0%, #0066cc 100%)',
     bubbleStyle: {
       background: 'linear-gradient(135deg, #0a84ff 0%, #0066cc 100%)',
       color: '#ffffff',
@@ -14,6 +15,7 @@ export const CHAT_THEMES = {
     id: 'sunset',
     name: 'Sunset Rose',
     primaryColor: '#f43f5e',
+    swatch: 'linear-gradient(135deg, #ff512f 0%, #dd2476 100%)',
     bubbleStyle: {
       background: 'linear-gradient(135deg, #ff512f 0%, #dd2476 100%)',
       color: '#ffffff',
@@ -25,6 +27,7 @@ export const CHAT_THEMES = {
     id: 'purple',
     name: 'Cyberpunk Violet',
     primaryColor: '#8b5cf6',
+    swatch: 'linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%)',
     bubbleStyle: {
       background: 'linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%)',
       color: '#ffffff',
@@ -36,6 +39,7 @@ export const CHAT_THEMES = {
     id: 'emerald',
     name: 'Emerald Mint',
     primaryColor: '#10b981',
+    swatch: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
     bubbleStyle: {
       background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
       color: '#ffffff',
@@ -47,6 +51,7 @@ export const CHAT_THEMES = {
     id: 'ocean',
     name: 'Ocean Lagoon',
     primaryColor: '#06b6d4',
+    swatch: 'linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%)',
     bubbleStyle: {
       background: 'linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%)',
       color: '#ffffff',
@@ -58,6 +63,7 @@ export const CHAT_THEMES = {
     id: 'gold',
     name: 'Midnight Amber',
     primaryColor: '#f59e0b',
+    swatch: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
     bubbleStyle: {
       background: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)',
       color: '#ffffff',
@@ -69,6 +75,7 @@ export const CHAT_THEMES = {
     id: 'berry',
     name: 'Neon Berry',
     primaryColor: '#ec4899',
+    swatch: 'linear-gradient(135deg, #ec4899 0%, #6366f1 100%)',
     bubbleStyle: {
       background: 'linear-gradient(135deg, #ec4899 0%, #6366f1 100%)',
       color: '#ffffff',
